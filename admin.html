@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>DigitalSAN · Panel administrador</title>
+<meta name="theme-color" content="#070c16">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="./assets/css/styles.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+<div class="app-shell">
+
+  <div class="app-topbar">
+    <div class="row">
+      <div class="brand">
+        <div class="logo-dot">DS</div>
+        <div><strong>DigitalSAN</strong><span id="saludo">Administración</span></div>
+      </div>
+      <div class="rate-chip" id="rateChip"></div>
+    </div>
+  </div>
+
+  <div class="page">
+
+    <!-- ============ RESUMEN ============ -->
+    <section id="viewResumen">
+      <div class="stat-grid">
+        <div class="glass stat-card"><div class="v" id="statCreadores">0</div><div class="l">Creadores</div></div>
+        <div class="glass stat-card"><div class="v" id="statParticipantesGlobal">0</div><div class="l">Participantes</div></div>
+        <div class="glass stat-card"><div class="v" id="statSanesGlobal">0</div><div class="l">San activos</div></div>
+        <div class="glass stat-card"><div class="v" id="statMontoGlobal">$0</div><div class="l">Movido en San</div></div>
+      </div>
+
+      <div class="glass mt-12">
+        <div class="card-title">Tasa USDT / VES</div>
+        <p class="muted" style="font-size:12px;">Se obtiene automáticamente (referencia Binance P2P). Si la API falla, se usa este respaldo manual.</p>
+        <div class="field mt-8"><label>Tasa manual de respaldo (Bs. por USDT)</label>
+          <div class="flex gap-8"><input type="number" step="0.01" id="tasaManual"><button class="btn btn-gold" id="btnGuardarTasa">Guardar</button></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ CREADORES ============ -->
+    <section id="viewCreadores" class="hidden">
+      <button class="btn btn-primary btn-block" onclick="abrirCrearCreador()">+ Nuevo creador</button>
+      <div class="list mt-12" id="listaCreadores"></div>
+    </section>
+
+    <!-- ============ SANES ============ -->
+    <section id="viewSanesGlobal" class="hidden">
+      <div class="list" id="listaSanesGlobal"></div>
+    </section>
+
+    <!-- ============ PERFIL ============ -->
+    <section id="viewPerfil" class="hidden">
+      <div class="glass text-center">
+        <div class="avatar" style="width:52px;height:52px;font-size:16px;margin:0 auto;" id="avatarPerfil"></div>
+        <h3 class="mt-8" id="nombrePerfil">—</h3>
+        <p class="muted" id="emailPerfil">—</p>
+      </div>
+      <button class="btn btn-danger btn-block mt-12" onclick="cerrarSesion()">Cerrar sesión</button>
+    </section>
+
+  </div>
+
+  <div class="app-footer">
+    © <span id="anio"></span> DigitalSAN · Powered by <a id="linkAutor" href="#" target="_blank">gabora646</a>
+  </div>
+</div>
+
+<div class="bottom-nav">
+  <div class="bar">
+    <button class="nav-btn active" data-view="Resumen">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V10M12 19V5M20 19v-6"/></svg>
+      <span>Resumen</span>
+    </button>
+    <button class="nav-btn" data-view="Creadores">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+      <span>Creadores</span>
+    </button>
+    <button class="nav-btn" data-view="SanesGlobal">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+      <span>San</span>
+    </button>
+    <button class="nav-btn" data-view="Perfil">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3 6 6 1-4.5 4.5L18 20l-6-3-6 3 1.5-6.5L3 9l6-1z"/></svg>
+      <span>Perfil</span>
+    </button>
+  </div>
+</div>
+
+<script src="./assets/js/config.js"></script>
+<script src="./assets/js/utils.js"></script>
+<script src="./assets/js/auth.js"></script>
+<script src="./assets/js/rate-service.js"></script>
+<script>
+document.getElementById('anio').textContent = new Date().getFullYear();
+document.getElementById('linkAutor').href = linkWhatsapp(APP_INFO.soporteWhatsapp, 'Hola, vengo de DigitalSAN 👋');
+
+let perfil = null;
+let creadores = [];
+let sanesGlobal = [];
+
+async function init() {
+  perfil = await requerirRol('admin');
+  if (!perfil) return;
+  document.getElementById('nombrePerfil').textContent = perfil.nombre_completo;
+  document.getElementById('avatarPerfil').textContent = iniciales(perfil.nombre_completo);
+  document.getElementById('emailPerfil').textContent = perfil.email || '';
+
+  renderRateChip('rateChip');
+
+  const { data: cfg } = await supabaseClient.from('configuracion').select('valor').eq('clave', 'tasa_manual_usdt').single();
+  document.getElementById('tasaManual').value = cfg?.valor || '';
+
+  await cargarTodo();
+}
+
+async function cargarTodo() {
+  const { data: creadoresData } = await supabaseClient.from('perfiles').select('*').eq('rol', 'creador').order('created_at', { ascending: false });
+  creadores = creadoresData || [];
+
+  const { count: totalParticipantes } = await supabaseClient.from('perfiles').select('*', { count: 'exact', head: true }).eq('rol', 'participante');
+
+  const { data: sanesData } = await supabaseClient.from('sanes').select('*, perfiles(nombre_completo)').order('created_at', { ascending: false });
+  sanesGlobal = sanesData || [];
+
+  document.getElementById('statCreadores').textContent = creadores.length;
+  document.getElementById('statParticipantesGlobal').textContent = totalParticipantes || 0;
+  document.getElementById('statSanesGlobal').textContent = sanesGlobal.filter(s => s.estado === 'activo').length;
+  document.getElementById('statMontoGlobal').textContent = formatoUSD(sanesGlobal.reduce((acc, s) => acc + Number(s.monto_total || 0), 0));
+
+  renderCreadores();
+  renderSanesGlobal();
+}
+
+/* ============ Creadores ============ */
+
+function renderCreadores() {
+  const list = document.getElementById('listaCreadores');
+  if (!creadores.length) { list.innerHTML = `<div class="empty"><div class="ico">🧑‍💼</div><b>Sin creadores registrados</b><p>Agrega el primero para que pueda crear sus San.</p></div>`; return; }
+  list.innerHTML = creadores.map(c => `
+    <div class="item-row">
+      <div class="avatar">${iniciales(c.nombre_completo)}</div>
+      <div class="meta"><b>${c.nombre_completo}</b><small>${c.email || ''} · ${c.whatsapp}</small></div>
+      <div class="actions">
+        <span class="badge ${c.activo ? 'badge-success' : 'badge-danger'}">${c.activo ? 'Activo' : 'Inactivo'}</span>
+        <button class="btn btn-icon btn-ghost" onclick="toggleActivoCreador('${c.id}',${c.activo})">⏻</button>
+      </div>
+    </div>`).join('');
+}
+
+function abrirCrearCreador() {
+  abrirSheet(`
+    <div class="sheet-header"><h3>Nuevo creador</h3><button class="btn btn-icon btn-ghost" onclick="cerrarOverlay(this)">✕</button></div>
+    <div class="glass tight mb-8">
+      <p class="hint">Paso 1 — En Supabase Dashboard: Authentication → Users → <b>Add user</b>, crea el correo y contraseña del creador y copia su UUID.</p>
+    </div>
+    <form id="formCrearCreador">
+      <div class="field"><label>UUID del usuario (Supabase Auth)</label><input type="text" id="cUuid" placeholder="00000000-0000-0000-0000-000000000000" required></div>
+      <div class="field"><label>Nombre completo</label><input type="text" id="cNombre" required></div>
+      <div class="field"><label>Correo</label><input type="email" id="cEmail" required></div>
+      <div class="field"><label>WhatsApp</label><input type="text" id="cWhatsapp" required></div>
+      <div class="error-text" id="errCrearCreador"></div>
+      <button type="submit" class="btn btn-primary btn-block">Registrar creador</button>
+    </form>
+  `);
+  document.getElementById('formCrearCreador').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const $ = id => document.getElementById(id);
+    const { error } = await supabaseClient.from('perfiles').insert({
+      auth_user_id: $('cUuid').value, rol: 'creador', nombre_completo: $('cNombre').value,
+      email: $('cEmail').value, whatsapp: $('cWhatsapp').value
+    });
+    if (error) { document.getElementById('errCrearCreador').textContent = 'No se pudo registrar. Verifica el UUID.'; return; }
+    document.querySelectorAll('.overlay').forEach(o => o.remove());
+    toast('Creador registrado ✅', 'success');
+    await cargarTodo();
+  });
+}
+
+async function toggleActivoCreador(id, activoActual) {
+  await supabaseClient.from('perfiles').update({ activo: !activoActual }).eq('id', id);
+  toast('Actualizado', 'success');
+  await cargarTodo();
+}
+
+/* ============ San global ============ */
+
+function renderSanesGlobal() {
+  const list = document.getElementById('listaSanesGlobal');
+  if (!sanesGlobal.length) { list.innerHTML = `<div class="empty"><div class="ico">📋</div><b>Sin San todavía</b></div>`; return; }
+  list.innerHTML = sanesGlobal.map(s => {
+    const est = ETIQUETAS_ESTADO_SAN[s.estado];
+    return `
+    <div class="glass tight">
+      <div class="glass-row">
+        <div><b style="font-size:13px;">${s.nombre}</b><div class="muted" style="font-size:11px;">Por ${s.perfiles?.nombre_completo || '—'} · ${formatoUSD(s.monto_total)}</div></div>
+        <span class="badge ${est.clase}">${est.texto}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ============ Configuración ============ */
+
+document.getElementById('btnGuardarTasa').addEventListener('click', async () => {
+  const valor = document.getElementById('tasaManual').value;
+  await guardarTasaManual(valor);
+  toast('Tasa de respaldo guardada', 'success');
+});
+
+/* ============ Navegación ============ */
+
+document.querySelectorAll('.nav-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    ['Resumen', 'Creadores', 'SanesGlobal', 'Perfil'].forEach(v => {
+      document.getElementById('view' + v).classList.toggle('hidden', v !== btn.dataset.view);
+    });
+  });
+});
+
+init();
+</script>
+</body>
+</html>

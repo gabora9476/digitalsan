@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>DigitalSAN · Iniciar sesión</title>
+<meta name="theme-color" content="#070c16">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="./assets/css/styles.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+<div class="app-shell no-nav">
+
+  <div class="page">
+    <div class="login-hero">
+      <div class="logo-dot">DS</div>
+      <h1>DigitalSAN</h1>
+      <p>Gestión inteligente de tu San / cadena de ahorro</p>
+    </div>
+
+    <div class="glass">
+      <div class="tabs" id="roleTabs">
+        <div class="tab active" data-role="participante">Participante</div>
+        <div class="tab" data-role="creador">Creador</div>
+        <div class="tab" data-role="admin">Admin</div>
+      </div>
+
+      <!-- Formulario participante (RIF + password) -->
+      <form id="formParticipante" class="mt-16">
+        <div class="field">
+          <label>Cédula / RIF</label>
+          <input type="text" id="pRif" placeholder="V-12345678" autocomplete="username" required>
+        </div>
+        <div class="field">
+          <label>Contraseña</label>
+          <input type="password" id="pPassword" placeholder="••••••••" autocomplete="current-password" required>
+        </div>
+        <div class="error-text" id="errParticipante"></div>
+        <button type="submit" class="btn btn-primary btn-block" id="btnLoginParticipante">Ingresar</button>
+        <p class="hint text-center mt-8">Tu creador te entregó tu cédula/RIF y una contraseña temporal por WhatsApp.</p>
+      </form>
+
+      <!-- Formulario creador / admin (email + password, Supabase Auth) -->
+      <form id="formEmail" class="mt-16 hidden">
+        <div class="field">
+          <label>Correo electrónico</label>
+          <input type="email" id="eEmail" placeholder="tucorreo@ejemplo.com" autocomplete="username" required>
+        </div>
+        <div class="field">
+          <label>Contraseña</label>
+          <input type="password" id="ePassword" placeholder="••••••••" autocomplete="current-password" required>
+        </div>
+        <div class="error-text" id="errEmail"></div>
+        <button type="submit" class="btn btn-primary btn-block" id="btnLoginEmail">Ingresar</button>
+        <p class="hint text-center mt-8" id="hintEmail">Acceso exclusivo para creadores de San autorizados.</p>
+      </form>
+    </div>
+
+    <div class="glass tight text-center">
+      <p class="hint">¿Problemas para ingresar o quieres crear tu propio San?</p>
+      <a id="linkSoporte" href="#" target="_blank" class="btn btn-ghost btn-sm mt-8">
+        Escribir por WhatsApp
+      </a>
+    </div>
+  </div>
+
+  <div class="app-footer">
+    © <span id="anio"></span> DigitalSAN — Todos los derechos reservados.<br>
+    Powered by <a id="linkAutor" href="#" target="_blank">gabora646</a>
+  </div>
+</div>
+
+<script src="./assets/js/config.js"></script>
+<script src="./assets/js/utils.js"></script>
+<script>
+document.getElementById('anio').textContent = new Date().getFullYear();
+document.getElementById('linkAutor').href = linkWhatsapp(APP_INFO.soporteWhatsapp, 'Hola, vengo de DigitalSAN 👋');
+document.getElementById('linkSoporte').href = linkWhatsapp(APP_INFO.soporteWhatsapp, 'Hola, necesito ayuda con DigitalSAN 🙌');
+
+let rolActivo = 'participante';
+const tabs = document.querySelectorAll('#roleTabs .tab');
+const formParticipante = document.getElementById('formParticipante');
+const formEmail = document.getElementById('formEmail');
+const hintEmail = document.getElementById('hintEmail');
+
+tabs.forEach(tab => {
+  tab.addEventListener('click', () => {
+    tabs.forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    rolActivo = tab.dataset.role;
+    if (rolActivo === 'participante') {
+      formParticipante.classList.remove('hidden');
+      formEmail.classList.add('hidden');
+    } else {
+      formParticipante.classList.add('hidden');
+      formEmail.classList.remove('hidden');
+      hintEmail.textContent = rolActivo === 'admin'
+        ? 'Acceso exclusivo para el administrador de la plataforma.'
+        : 'Acceso exclusivo para creadores de San autorizados.';
+    }
+  });
+});
+
+// Si ya hay sesión activa, redirige directo
+(async () => {
+  const sesionParticipante = obtenerSesionParticipante();
+  if (sesionParticipante) { window.location.href = 'participante.html'; return; }
+  const { data } = await supabaseClient.auth.getSession();
+  if (data?.session) {
+    const { data: perfil } = await supabaseClient.from('perfiles').select('rol').eq('auth_user_id', data.session.user.id).single();
+    if (perfil?.rol === 'admin') window.location.href = 'admin.html';
+    else if (perfil?.rol === 'creador') window.location.href = 'creador.html';
+  }
+})();
+
+formParticipante.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('btnLoginParticipante');
+  const errEl = document.getElementById('errParticipante');
+  errEl.textContent = '';
+  botonCargando(btn, true);
+  const rif = document.getElementById('pRif').value;
+  const pass = document.getElementById('pPassword').value;
+  const res = await loginParticipante(rif, pass);
+  botonCargando(btn, false, 'Ingresar');
+  if (!res.ok) { errEl.textContent = res.error; return; }
+  window.location.href = 'participante.html';
+});
+
+formEmail.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('btnLoginEmail');
+  const errEl = document.getElementById('errEmail');
+  errEl.textContent = '';
+  botonCargando(btn, true);
+  const email = document.getElementById('eEmail').value;
+  const pass = document.getElementById('ePassword').value;
+  const res = await loginConEmail(email, pass);
+  botonCargando(btn, false, 'Ingresar');
+  if (!res.ok) { errEl.textContent = res.error; return; }
+  if (res.perfil.rol !== rolActivo) {
+    errEl.textContent = `Esta cuenta no tiene permisos de ${rolActivo}.`;
+    await supabaseClient.auth.signOut();
+    return;
+  }
+  window.location.href = res.perfil.rol === 'admin' ? 'admin.html' : 'creador.html';
+});
+</script>
+</body>
+</html>

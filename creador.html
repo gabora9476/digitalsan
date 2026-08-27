@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>DigitalSAN · Panel del creador</title>
+<meta name="theme-color" content="#070c16">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="./assets/css/styles.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+<div class="app-shell">
+
+  <div class="app-topbar">
+    <div class="row">
+      <div class="brand">
+        <div class="logo-dot">DS</div>
+        <div><strong>DigitalSAN</strong><span id="saludo">Panel del creador</span></div>
+      </div>
+      <div class="flex gap-6 items-center">
+        <div class="rate-chip" id="rateChip"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="page">
+
+    <!-- ============ SANES ============ -->
+    <section id="viewSanes">
+      <div class="stat-grid">
+        <div class="glass stat-card"><div class="v" id="statTotalSanes">0</div><div class="l">San activos</div></div>
+        <div class="glass stat-card"><div class="v" id="statTotalParticipantes">0</div><div class="l">Participantes</div></div>
+      </div>
+
+      <button class="btn btn-primary btn-block mt-12" onclick="abrirCrearSan()">+ Crear nuevo San</button>
+
+      <div class="list mt-12" id="listaSanes"></div>
+    </section>
+
+    <!-- ============ PARTICIPANTES ============ -->
+    <section id="viewParticipantes" class="hidden">
+      <button class="btn btn-primary btn-block" onclick="abrirCrearParticipante()">+ Nuevo participante</button>
+      <div class="field mt-12"><input type="text" id="buscarParticipante" placeholder="Buscar por nombre o RIF..."></div>
+      <div class="list mt-8" id="listaParticipantes"></div>
+    </section>
+
+    <!-- ============ PAGOS ============ -->
+    <section id="viewPagos" class="hidden">
+      <div class="chips mb-8" id="filtroPagosCreador">
+        <div class="chip active" data-filtro="reportado">Por validar</div>
+        <div class="chip" data-filtro="pendiente">Pendientes</div>
+        <div class="chip" data-filtro="atrasado">Atrasados</div>
+        <div class="chip" data-filtro="validado">Validados</div>
+        <div class="chip" data-filtro="todos">Todos</div>
+      </div>
+      <div class="list" id="listaPagosCreador"></div>
+    </section>
+
+    <!-- ============ PERFIL ============ -->
+    <section id="viewPerfil" class="hidden">
+      <div class="glass text-center">
+        <div class="avatar" style="width:52px;height:52px;font-size:16px;margin:0 auto;" id="avatarPerfil"></div>
+        <h3 class="mt-8" id="nombrePerfil">—</h3>
+        <p class="muted" id="emailPerfil">—</p>
+      </div>
+      <div class="glass mt-12">
+        <div class="card-title">Contacto</div>
+        <div class="glass-row"><span class="muted">WhatsApp</span><span class="mono" id="waPerfil">—</span></div>
+      </div>
+      <button class="btn btn-danger btn-block mt-12" onclick="cerrarSesion()">Cerrar sesión</button>
+    </section>
+
+  </div>
+
+  <div class="app-footer">
+    © <span id="anio"></span> DigitalSAN · Powered by <a id="linkAutor" href="#" target="_blank">gabora646</a>
+  </div>
+</div>
+
+<div class="bottom-nav">
+  <div class="bar">
+    <button class="nav-btn active" data-view="Sanes">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+      <span>Mis San</span>
+    </button>
+    <button class="nav-btn" data-view="Participantes">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.5 3-5.5 6.5-5.5s6.5 2 6.5 5.5"/><circle cx="17.5" cy="9" r="2.5"/><path d="M15.5 14.2c2.7.3 4.5 2.1 5 5.8"/></svg>
+      <span>Participantes</span>
+    </button>
+    <button class="nav-btn" data-view="Pagos">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18"/></svg>
+      <span>Pagos</span>
+    </button>
+    <button class="nav-btn" data-view="Perfil">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+      <span>Perfil</span>
+    </button>
+  </div>
+</div>
+
+<script src="./assets/js/config.js"></script>
+<script src="./assets/js/utils.js"></script>
+<script src="./assets/js/auth.js"></script>
+<script src="./assets/js/rate-service.js"></script>
+<script>
+document.getElementById('anio').textContent = new Date().getFullYear();
+document.getElementById('linkAutor').href = linkWhatsapp(APP_INFO.soporteWhatsapp, 'Hola, vengo de DigitalSAN 👋');
+
+let perfil = null;
+let sanes = [];
+let participantes = [];
+let pagosTodos = [];
+let tasaInfo = null;
+
+async function init() {
+  perfil = await requerirRol('creador');
+  if (!perfil) return;
+  document.getElementById('nombrePerfil').textContent = perfil.nombre_completo;
+  document.getElementById('avatarPerfil').textContent = iniciales(perfil.nombre_completo);
+  document.getElementById('emailPerfil').textContent = perfil.email || '';
+  document.getElementById('waPerfil').textContent = perfil.whatsapp;
+
+  renderRateChip('rateChip');
+  tasaInfo = await obtenerTasaUSDT();
+
+  await cargarTodo();
+}
+
+async function cargarTodo() {
+  const { data: sanesData } = await supabaseClient
+    .from('sanes').select('*, numeros_san(*, perfiles(nombre_completo))')
+    .eq('creador_id', perfil.id).order('created_at', { ascending: false });
+  sanes = sanesData || [];
+
+  const { data: partData } = await supabaseClient
+    .from('perfiles').select('*').eq('creado_por', perfil.id).eq('rol', 'participante').order('nombre_completo');
+  participantes = partData || [];
+
+  const sanIds = sanes.map(s => s.id);
+  if (sanIds.length) {
+    const { data: pagosData } = await supabaseClient
+      .from('pagos').select('*, perfiles(nombre_completo, whatsapp), sanes(nombre)')
+      .in('san_id', sanIds).order('fecha_vencimiento', { ascending: true });
+    pagosTodos = pagosData || [];
+  } else { pagosTodos = []; }
+
+  document.getElementById('statTotalSanes').textContent = sanes.filter(s => s.estado !== 'cancelado').length;
+  document.getElementById('statTotalParticipantes').textContent = participantes.length;
+
+  renderSanes();
+  renderParticipantes();
+  renderPagosCreador(document.querySelector('#filtroPagosCreador .chip.active').dataset.filtro);
+}
+
+/* ================= SANES ================= */
+
+function renderSanes() {
+  const list = document.getElementById('listaSanes');
+  if (!sanes.length) {
+    list.innerHTML = `<div class="empty"><div class="ico">📋</div><b>Sin San creados</b><p>Crea tu primer San para empezar a gestionar cobros y pagos.</p></div>`;
+    return;
+  }
+  list.innerHTML = sanes.map(s => {
+    const numeros = s.numeros_san || [];
+    const ocupados = numeros.filter(n => n.estado === 'ocupado').length;
+    const est = ETIQUETAS_ESTADO_SAN[s.estado];
+    return `
+    <div class="glass tight" style="cursor:pointer;" onclick="abrirDetalleSan('${s.id}')">
+      <div class="glass-row">
+        <div class="flex gap-8 items-center">
+          <div class="avatar">${s.tipo === 'personalizado' ? '🎁' : '💰'}</div>
+          <div>
+            <b style="font-size:13.5px;">${s.nombre}</b>
+            <div class="muted" style="font-size:11px;">${ocupados}/${s.num_participantes} cupos · ${ETIQUETAS_FRECUENCIA[s.frecuencia]}</div>
+          </div>
+        </div>
+        <span class="badge ${est.clase}">${est.texto}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function abrirCrearSan() {
+  abrirSheet(`
+    <div class="sheet-header"><h3>Crear nuevo San</h3><button class="btn btn-icon btn-ghost" onclick="cerrarOverlay(this)">✕</button></div>
+    <form id="formCrearSan">
+      <div class="field"><label>Nombre del San</label><input type="text" id="sNombre" placeholder="Ej: San Familiar Julio" required></div>
+
+      <div class="field">
+        <label>Tipo</label>
+        <select id="sTipo">
+          <option value="monetario">Monetario (dinero)</option>
+          <option value="personalizado">Personalizado (artículos)</option>
+        </select>
+      </div>
+      <div class="field hidden" id="campoArticulo"><label>Descripción del artículo</label><input type="text" id="sArticulo" placeholder="Ej: Combo de electrodomésticos"></div>
+
+      <div class="field"><label>Monto de la cuota (USD)</label><input type="number" step="0.01" min="0" id="sMontoCuota" placeholder="20.00" required></div>
+      <div class="field"><label>Número de participantes / cupos</label><input type="number" min="2" id="sNumParticipantes" placeholder="10" required></div>
+      <div class="field"><label>Monto total del San</label><input type="text" id="sMontoTotal" readonly></div>
+
+      <div class="field">
+        <label>Frecuencia de pago</label>
+        <select id="sFrecuencia"><option value="semanal">Semanal</option><option value="quincenal">Quincenal</option><option value="mensual">Mensual</option></select>
+      </div>
+      <div class="field"><label>Fecha de inicio</label><input type="date" id="sFechaInicio" required></div>
+      <div class="field"><label>Fecha estimada de finalización</label><input type="text" id="sFechaFin" readonly></div>
+
+      <div class="field">
+        <label>Asignación de números</label>
+        <select id="sMetodo">
+          <option value="libre">Libre — el participante elige su número</option>
+          <option value="sorteo">Sorteo — tú ejecutas el sorteo</option>
+          <option value="manual">Manual — tú asignas cada número</option>
+        </select>
+      </div>
+
+      <div class="error-text" id="errCrearSan"></div>
+      <button type="submit" class="btn btn-primary btn-block" id="btnCrearSan">Crear San</button>
+    </form>
+  `);
+
+  const $ = id => document.getElementById(id);
+  $('sTipo').addEventListener('change', () => $('campoArticulo').classList.toggle('hidden', $('sTipo').value !== 'personalizado'));
+
+  function recalcular() {
+    const cuota = parseFloat($('sMontoCuota').value) || 0;
+    const n = parseInt($('sNumParticipantes').value) || 0;
+    $('sMontoTotal').value = formatoUSD(cuota * n);
+    if ($('sFechaInicio').value && n > 1) {
+      const { fechaFin } = calcularCalendarioSan($('sFechaInicio').value, $('sFrecuencia').value, n);
+      $('sFechaFin').value = formatearFecha(fechaFin);
+    }
+  }
+  ['sMontoCuota', 'sNumParticipantes', 'sFechaInicio', 'sFrecuencia'].forEach(id => $(id).addEventListener('input', recalcular));
+  $('sFechaInicio').valueAsDate = new Date();
+  recalcular();
+
+  $('formCrearSan').addEventListener('submit', crearSan);
+}
+
+async function crearSan(e) {
+  e.preventDefault();
+  const $ = id => document.getElementById(id);
+  const btn = document.getElementById('btnCrearSan');
+  botonCargando(btn, true);
+  document.getElementById('errCrearSan').textContent = '';
+
+  const nombre = $('sNombre').value;
+  const tipo = $('sTipo').value;
+  const articulo = $('sArticulo').value;
+  const montoCuota = parseFloat($('sMontoCuota').value);
+  const numParticipantes = parseInt($('sNumParticipantes').value);
+  const frecuencia = $('sFrecuencia').value;
+  const fechaInicio = $('sFechaInicio').value;
+  const metodo = $('sMetodo').value;
+
+  const { fechas, fechaFin } = calcularCalendarioSan(fechaInicio, frecuencia, numParticipantes);
+
+  try {
+    const { data: san, error } = await supabaseClient.from('sanes').insert({
+      creador_id: perfil.id, nombre, tipo,
+      descripcion_articulo: tipo === 'personalizado' ? articulo : null,
+      monto_cuota: montoCuota, num_participantes: numParticipantes,
+      monto_total: montoCuota * numParticipantes, frecuencia,
+      fecha_inicio: fechaInicio, fecha_fin: fechaISO(fechaFin),
+      metodo_asignacion: metodo, estado: 'planificacion'
+    }).select().single();
+    if (error) throw error;
+
+    const numerosRows = fechas.map((f, i) => ({ san_id: san.id, numero: i + 1, fecha_turno: fechaISO(f), estado: 'disponible' }));
+    const { error: errNum } = await supabaseClient.from('numeros_san').insert(numerosRows);
+    if (errNum) throw errNum;
+
+    const cobrosRows = fechas.map((f, i) => ({ san_id: san.id, numero_turno: i + 1, fecha_cobro: fechaISO(f), monto_total_usd: montoCuota * numParticipantes }));
+    await supabaseClient.from('cobros').insert(cobrosRows);
+
+    document.querySelectorAll('.overlay').forEach(o => o.remove());
+    toast('San creado con éxito ✅', 'success');
+    await cargarTodo();
+  } catch (err) {
+    document.getElementById('errCrearSan').textContent = 'No se pudo crear el San. Verifica los datos.';
+  } finally {
+    botonCargando(btn, false, 'Crear San');
+  }
+}
+
+function abrirDetalleSan(sanId) {
+  const s = sanes.find(x => x.id === sanId);
+  const numeros = (s.numeros_san || []).sort((a, b) => a.numero - b.numero);
+  const est = ETIQUETAS_ESTADO_SAN[s.estado];
+
+  const overlay = abrirSheet(`
+    <div class="sheet-header"><h3>${s.nombre}</h3><button class="btn btn-icon btn-ghost" onclick="cerrarOverlay(this)">✕</button></div>
+    <div class="chips mb-8">
+      <span class="badge ${est.clase}">${est.texto}</span>
+      <span class="badge badge-muted">${ETIQUETAS_FRECUENCIA[s.frecuencia]}</span>
+      <span class="badge badge-muted">${s.metodo_asignacion}</span>
+    </div>
+    <div class="stat-grid">
+      <div class="glass tight stat-card"><div class="v">${formatoUSD(s.monto_cuota)}</div><div class="l">Cuota</div></div>
+      <div class="glass tight stat-card"><div class="v">${formatoUSD(s.monto_total)}</div><div class="l">Total del San</div></div>
+    </div>
+    <div class="glass-row mt-8"><span class="muted" style="font-size:12px;">Inicio → Fin</span><b style="font-size:12px;">${formatearFecha(s.fecha_inicio)} → ${formatearFecha(s.fecha_fin)}</b></div>
+
+    <div class="card-title mt-12">Números y turnos</div>
+    <div class="num-grid" id="gridNumeros${s.id}">
+      ${numeros.map(n => `
+        <div class="num-cell ${n.estado === 'ocupado' ? 'mine' : 'selectable'}" title="${n.perfiles ? n.perfiles.nombre_completo : 'Disponible'}"
+          onclick="tocarNumero('${s.id}','${n.id}',${n.numero},'${n.estado}',${n.participante_id ? `'${n.participante_id}'` : 'null'})">${n.numero}</div>
+      `).join('')}
+    </div>
+    <p class="hint mt-8">Toca un número para asignarlo manualmente o liberarlo.</p>
+
+    ${s.metodo_asignacion === 'sorteo' ? `<button class="btn btn-gold btn-block mt-12" onclick="abrirSorteo('${s.id}')">🎲 Ejecutar sorteo</button>` : ''}
+
+    <div class="flex gap-8 mt-12">
+      ${s.estado === 'planificacion' ? `<button class="btn btn-ghost grow" onclick="cambiarEstadoSan('${s.id}','activo')">Activar San</button>` : ''}
+      ${s.estado === 'activo' ? `<button class="btn btn-ghost grow" onclick="cambiarEstadoSan('${s.id}','finalizado')">Marcar finalizado</button>` : ''}
+      <button class="btn btn-danger" onclick="cambiarEstadoSan('${s.id}','cancelado')">Cancelar</button>
+    </div>
+  `);
+}
+
+async function cambiarEstadoSan(sanId, estado) {
+  await supabaseClient.from('sanes').update({ estado }).eq('id', sanId);
+  document.querySelectorAll('.overlay').forEach(o => o.remove());
+  toast('Estado actualizado', 'success');
+  await cargarTodo();
+}
+
+function tocarNumero(sanId, numeroRowId, numero, estadoActual, participanteId) {
+  if (estadoActual === 'ocupado') {
+    if (confirm(`¿Liberar el número ${numero}?`)) liberarNumero(numeroRowId);
+    return;
+  }
+  const disponibles = participantes.filter(p => !sanes.find(s => s.id === sanId).numeros_san.some(n => n.participante_id === p.id));
+  if (!disponibles.length) { toast('No tienes participantes disponibles para asignar', 'error'); return; }
+  abrirSheet(`
+    <div class="sheet-header"><h3>Asignar número ${numero}</h3><button class="btn btn-icon btn-ghost" onclick="cerrarOverlay(this)">✕</button></div>
+    <div class="list">
+      ${disponibles.map(p => `
+        <div class="item-row" style="cursor:pointer;" onclick="asignarNumeroManual('${numeroRowId}','${p.id}')">
+          <div class="avatar">${iniciales(p.nombre_completo)}</div>
+          <div class="meta"><b>${p.nombre_completo}</b><small>${p.rif}</small></div>
+        </div>`).join('')}
+    </div>
+  `);
+}
+
+async function asignarNumeroManual(numeroRowId, participanteId) {
+  const { error } = await supabaseClient.from('numeros_san').update({ participante_id: participanteId, estado: 'ocupado' }).eq('id', numeroRowId);
+  document.querySelectorAll('.overlay').forEach(o => o.remove());
+  if (error) { toast('No se pudo asignar', 'error'); return; }
+  toast('Número asignado', 'success');
+  await cargarTodo();
+}
+
+async function liberarNumero(numeroRowId) {
+  await supabaseClient.from('numeros_san').update({ participante_id: null, estado: 'disponible' }).eq('id', numeroRowId);
+  document.querySelectorAll('.overlay').forEach(o => o.remove());
+  toast('Número liberado', 'success');
+  await cargarTodo();
+}
+
+function abrirSorteo(sanId) {
+  const s = sanes.find(x => x.id === sanId);
+  const inscritos = participantes.filter(p => !s.numeros_san.some(n => n.participante_id === p.id));
+  if (!inscritos.length) { toast('No hay participantes sin número para sortear', 'error'); return; }
+  abrirSheet(`
+    <div class="sheet-header"><h3>Ejecutar sorteo</h3><button class="btn btn-icon btn-ghost" onclick="cerrarOverlay(this)">✕</button></div>
+    <p class="muted" style="font-size:12.5px;">Selecciona los participantes que entrarán al sorteo de números disponibles.</p>
+    <div class="list mt-8" id="listaInscritosSorteo">
+      ${inscritos.map(p => `
+        <label class="item-row" style="cursor:pointer;">
+          <input type="checkbox" value="${p.id}" class="chkSorteo" style="width:18px;height:18px;margin-right:2px;">
+          <div class="avatar">${iniciales(p.nombre_completo)}</div>
+          <div class="meta"><b>${p.nombre_completo}</b><small>${p.rif}</small></div>
+        </label>`).join('')}
+    </div>
+    <button class="btn btn-gold btn-block mt-12" onclick="ejecutarSorteo('${sanId}')">🎲 Sortear números</button>
+  `);
+}
+
+async function ejecutarSorteo(sanId) {
+  const ids = Array.from(document.querySelectorAll('.chkSorteo:checked')).map(c => c.value);
+  if (!ids.length) { toast('Selecciona al menos un participante', 'error'); return; }
+  const s = sanes.find(x => x.id === sanId);
+  const disponibles = s.numeros_san.filter(n => n.estado === 'disponible').map(n => n.id);
+  if (ids.length > disponibles.length) { toast('Hay más participantes que números disponibles', 'error'); return; }
+
+  const numerosBarajados = [...disponibles].sort(() => Math.random() - 0.5);
+  const asignaciones = ids.map((pid, i) => ({ numeroRowId: numerosBarajados[i], participanteId: pid }));
+
+  for (const a of asignaciones) {
+    await supabaseClient.from('numeros_san').update({ participante_id: a.participanteId, estado: 'ocupado' }).eq('id', a.numeroRowId);
+  }
+  const { data: numerosActualizados } = await supabaseClient.from('numeros_san').select('numero, participante_id').in('id', asignaciones.map(a => a.numeroRowId));
+  const logRows = numerosActualizados.map(n => ({ san_id: sanId, numero_ganador: n.numero, participante_id: n.participante_id, realizado: true }));
+  await supabaseClient.from('sorteos').insert(logRows);
+
+  document.querySelectorAll('.overlay').forEach(o => o.remove());
+  toast('Sorteo ejecutado 🎉', 'success');
+  await cargarTodo();
+}
+
+/* ================= PARTICIPANTES ================= */
+
+function renderParticipantes() {
+  const list = document.getElementById('listaParticipantes');
+  const q = (document.getElementById('buscarParticipante').value || '').toLowerCase();
+  const datos = participantes.filter(p => !q || p.nombre_completo.toLowerCase().includes(q) || (p.rif || '').toLowerCase().includes(q));
+  if (!datos.length) {
+    list.innerHTML = `<div class="empty"><div class="ico">👥</div><b>Sin participantes</b><p>Agrega tu primer participante para empezar.</p></div>`;
+    return;
+  }
+  list.innerHTML = datos.map(p => `
+    <div class="item-row">
+      <div class="avatar">${iniciales(p.nombre_completo)}</div>
+      <div class="meta"><b>${p.nombre_completo}</b><small>${p.rif} · ${p.whatsapp}</small></div>
+      <div class="actions">
+        <button class="btn btn-icon btn-ghost" title="Recordar pago" onclick="recordarProximoPago('${p.id}')">🔔</button>
+        <button class="btn btn-icon btn-ghost" title="Restablecer clave" onclick="restablecerClave('${p.id}','${p.nombre_completo.replace(/'/g, "")}','${p.whatsapp}')">🔑</button>
+      </div>
+    </div>`).join('');
+}
+document.getElementById('buscarParticipante').addEventListener('input', renderParticipantes);
+
+function abrirCrearParticipante() {
+  abrirSheet(`
+    <div class="sheet-header"><h3>Nuevo participante</h3><button class="btn btn-icon btn-ghost" onclick="cerrarOverlay(this)">✕</button></div>
+    <form id="formCrearParticipante">
+      <div class="field"><label>Nombre completo</label><input type="text" id="pNombre" required></div>
+      <div class="field"><label>Cédula / RIF</label><input type="text" id="pRif" placeholder="V-12345678" required></div>
+      <div class="field"><label>WhatsApp</label><input type="text" id="pWhatsapp" placeholder="0412-1234567" required></div>
+      <div class="field"><label>Dirección</label><textarea id="pDireccion" placeholder="Opcional"></textarea></div>
+      <div class="error-text" id="errCrearParticipante"></div>
+      <button type="submit" class="btn btn-primary btn-block" id="btnCrearParticipante">Crear participante</button>
+    </form>
+  `);
+  document.getElementById('formCrearParticipante').addEventListener('submit', crearParticipante);
+}
+
+async function crearParticipante(e) {
+  e.preventDefault();
+  const $ = id => document.getElementById(id);
+  const btn = document.getElementById('btnCrearParticipante');
+  botonCargando(btn, true);
+  document.getElementById('errCrearParticipante').textContent = '';
+
+  const nombre = $('pNombre').value;
+  const rif = normalizarRIF($('pRif').value);
+  const whatsapp = $('pWhatsapp').value;
+  const direccion = $('pDireccion').value;
+  const passwordTemporal = generarPasswordTemporal(rif);
+
+  const { data, error } = await supabaseClient.rpc('crear_participante', {
+    p_creador_id: perfil.id, p_nombre: nombre, p_rif: rif, p_whatsapp: whatsapp,
+    p_direccion: direccion, p_password: passwordTemporal
+  });
+
+  botonCargando(btn, false, 'Crear participante');
+  if (error || !data.ok) { document.getElementById('errCrearParticipante').textContent = data?.error || 'No se pudo crear'; return; }
+
+  document.querySelectorAll('.overlay').forEach(o => o.remove());
+  toast('Participante creado ✅', 'success');
+  await cargarTodo();
+
+  const mensaje = `Hola ${nombre} 👋, ya tienes acceso a *DigitalSAN*.\n\nTu cédula/RIF: ${rif}\nContraseña temporal: ${passwordTemporal}\n\nIngresa en el enlace que te compartió tu organizador y elige tu número cuando esté disponible. ¡Gracias por participar!`;
+  abrirSheet(`
+    <div class="sheet-header"><h3>Compartir credenciales</h3></div>
+    <p class="muted" style="font-size:12.5px;">Envía sus datos de acceso por WhatsApp ahora, luego no podrás verlos de nuevo.</p>
+    <div class="glass tight mt-8 mono" style="font-size:12px;">RIF: ${rif}<br>Clave: ${passwordTemporal}</div>
+    <button class="btn btn-primary btn-block mt-12" onclick="window.open('${linkWhatsapp(whatsapp, mensaje)}','_blank')">Enviar por WhatsApp</button>
+  `, { centered: true });
+}
+
+async function restablecerClave(participanteId, nombre, whatsapp) {
+  if (!confirm(`¿Generar una nueva contraseña temporal para ${nombre}?`)) return;
+  const passwordTemporal = generarPasswordTemporal(Date.now().toString());
+  const { data } = await supabaseClient.rpc('resetear_password_participante', { p_participante_id: participanteId, p_password: passwordTemporal });
+  if (!data?.ok) { toast('No se pudo restablecer', 'error'); return; }
+  const mensaje = `Hola ${nombre} 👋, tu nueva contraseña temporal de DigitalSAN es: ${passwordTemporal}`;
+  toast('Nueva contraseña generada', 'success');
+  abrirSheet(`
+    <div class="sheet-header"><h3>Nueva contraseña</h3></div>
+    <div class="glass tight mono" style="font-size:12px;">Clave: ${passwordTemporal}</div>
+    <button class="btn btn-primary btn-block mt-12" onclick="window.open('${linkWhatsapp(whatsapp, mensaje)}','_blank')">Enviar por WhatsApp</button>
+  `, { centered: true });
+}
+
+function recordarProximoPago(participanteId) {
+  const p = participantes.find(x => x.id === participanteId);
+  const pendiente = pagosTodos.filter(x => x.participante_id === participanteId && (x.estado === 'pendiente' || x.estado === 'atrasado'))
+    .sort((a, b) => new Date(a.fecha_vencimiento) - new Date(b.fecha_vencimiento))[0];
+  if (!pendiente) { toast('Este participante está al día ✅', 'success'); return; }
+  const mensaje = `Hola ${p.nombre_completo} 👋, te recordamos tu cuota #${pendiente.numero_cuota} de *${pendiente.sanes?.nombre || 'tu San'}* por ${formatoUSD(pendiente.monto_usd)}, con vencimiento el ${formatearFecha(pendiente.fecha_vencimiento)}. ¡Gracias por tu puntualidad! 🙏`;
+  window.open(linkWhatsapp(p.whatsapp, mensaje), '_blank');
+}
+
+/* ================= PAGOS ================= */
+
+function renderPagosCreador(filtro) {
+  const list = document.getElementById('listaPagosCreador');
+  let datos = filtro === 'todos' ? pagosTodos : pagosTodos.filter(p => {
+    if (filtro === 'atrasado') return p.estado === 'pendiente' && diasHastaVencer(p.fecha_vencimiento) < 0;
+    return p.estado === filtro;
+  });
+  if (!datos.length) { list.innerHTML = `<div class="empty"><div class="ico">✅</div><b>Nada por aquí</b><p>No hay pagos en este filtro.</p></div>`; return; }
+
+  list.innerHTML = datos.map(p => {
+    const atrasado = p.estado === 'pendiente' && diasHastaVencer(p.fecha_vencimiento) < 0;
+    const est = ETIQUETAS_ESTADO_PAGO[atrasado ? 'atrasado' : p.estado];
+    return `
+    <div class="item-row" style="align-items:flex-start;">
+      <div class="avatar">${iniciales(p.perfiles?.nombre_completo || '?')}</div>
+      <div class="meta">
+        <b>${p.perfiles?.nombre_completo || 'Participante'}</b>
+        <small>${p.sanes?.nombre || ''} · Cuota ${p.numero_cuota} · ${formatoUSD(p.monto_usd)}</small>
+        <div class="mt-4"><span class="badge ${est.clase}">${est.texto}</span></div>
+      </div>
+      <div class="actions flex-col gap-6">
+        ${p.comprobante_url ? `<a href="${p.comprobante_url}" target="_blank" class="btn btn-ghost btn-sm">Ver</a>` : ''}
+        ${p.estado === 'reportado' ? `<button class="btn btn-primary btn-sm" onclick="validarPago('${p.id}')">Validar</button>` : ''}
+        ${p.estado !== 'validado' ? `<button class="btn btn-icon btn-ghost" onclick="recordarProximoPago('${p.participante_id}')">🔔</button>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+document.querySelectorAll('#filtroPagosCreador .chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    document.querySelectorAll('#filtroPagosCreador .chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    renderPagosCreador(chip.dataset.filtro);
+  });
+});
+
+async function validarPago(pagoId) {
+  const { error } = await supabaseClient.from('pagos').update({ estado: 'validado', validado_por: perfil.id }).eq('id', pagoId);
+  if (error) { toast('No se pudo validar', 'error'); return; }
+  toast('Pago validado ✅', 'success');
+  await cargarTodo();
+}
+
+/* ================= Navegación ================= */
+
+document.querySelectorAll('.nav-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    ['Sanes', 'Participantes', 'Pagos', 'Perfil'].forEach(v => {
+      document.getElementById('view' + v).classList.toggle('hidden', v !== btn.dataset.view);
+    });
+  });
+});
+
+init();
+</script>
+</body>
+</html>

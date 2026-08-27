@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>DigitalSAN · Mi panel</title>
+<meta name="theme-color" content="#070c16">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="./assets/css/styles.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+<div class="app-shell">
+
+  <div class="app-topbar">
+    <div class="row">
+      <div class="brand">
+        <div class="logo-dot">DS</div>
+        <div>
+          <strong>DigitalSAN</strong>
+          <span id="saludo">Hola 👋</span>
+        </div>
+      </div>
+      <div class="rate-chip" id="rateChip"></div>
+    </div>
+  </div>
+
+  <div class="page">
+
+    <!-- ============ INICIO ============ -->
+    <section id="viewInicio">
+      <div class="glass" id="wheelCard">
+        <div class="card-title">Mi San</div>
+        <div id="wheelContent"></div>
+      </div>
+
+      <div class="stat-grid mt-12">
+        <div class="glass stat-card">
+          <div class="v" id="statProximoPago">—</div>
+          <div class="l">Próximo pago</div>
+        </div>
+        <div class="glass stat-card">
+          <div class="v" id="statProximoCobro">—</div>
+          <div class="l">Mi cobro</div>
+        </div>
+      </div>
+
+      <div class="glass mt-12" id="cardOtrosSanes" style="display:none;">
+        <div class="card-title">Otros San disponibles</div>
+        <div class="list" id="listaOtrosSanes"></div>
+      </div>
+    </section>
+
+    <!-- ============ PAGOS ============ -->
+    <section id="viewPagos" class="hidden">
+      <div class="chips mb-8" id="filtroPagos">
+        <div class="chip active" data-filtro="todos">Todos</div>
+        <div class="chip" data-filtro="pendiente">Pendientes</div>
+        <div class="chip" data-filtro="reportado">Reportados</div>
+        <div class="chip" data-filtro="validado">Validados</div>
+        <div class="chip" data-filtro="atrasado">Atrasados</div>
+      </div>
+      <div class="list" id="listaPagos"></div>
+    </section>
+
+    <!-- ============ PERFIL ============ -->
+    <section id="viewPerfil" class="hidden">
+      <div class="glass text-center">
+        <div class="item-row" style="background:none;border:none;padding:0;justify-content:center;">
+          <div class="avatar" style="width:52px;height:52px;font-size:16px;" id="avatarPerfil"></div>
+        </div>
+        <h3 class="mt-8" id="nombrePerfil">—</h3>
+        <p class="muted" id="rifPerfil">—</p>
+      </div>
+
+      <div class="glass mt-12">
+        <div class="card-title">Mis datos</div>
+        <div class="list">
+          <div class="glass-row"><span class="muted">WhatsApp</span><span id="dWhatsapp" class="mono">—</span></div>
+          <div class="divider"></div>
+          <div class="glass-row"><span class="muted">Dirección</span><span id="dDireccion" style="text-align:right; max-width:60%;">—</span></div>
+        </div>
+      </div>
+
+      <div class="glass mt-12">
+        <div class="card-title">Cambiar contraseña</div>
+        <form id="formPassword">
+          <div class="field"><label>Contraseña actual</label><input type="password" id="passActual" required></div>
+          <div class="field"><label>Nueva contraseña</label><input type="password" id="passNueva" required minlength="4"></div>
+          <div class="error-text" id="errPass"></div>
+          <button type="submit" class="btn btn-ghost btn-block">Actualizar contraseña</button>
+        </form>
+      </div>
+
+      <button class="btn btn-danger btn-block mt-12" id="btnLogout">Cerrar sesión</button>
+    </section>
+
+  </div>
+
+  <div class="app-footer">
+    © <span id="anio"></span> DigitalSAN · Powered by <a id="linkAutor" href="#" target="_blank">gabora646</a>
+  </div>
+</div>
+
+<div class="bottom-nav">
+  <div class="bar">
+    <button class="nav-btn active" data-view="Inicio">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>
+      <span>Inicio</span>
+    </button>
+    <button class="nav-btn" data-view="Pagos">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18"/><path d="M7 15h4"/></svg>
+      <span>Pagos</span>
+    </button>
+    <button class="nav-btn" data-view="Perfil">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+      <span>Perfil</span>
+    </button>
+  </div>
+</div>
+
+<script src="./assets/js/config.js"></script>
+<script src="./assets/js/utils.js"></script>
+<script src="./assets/js/auth.js"></script>
+<script src="./assets/js/rate-service.js"></script>
+<script>
+document.getElementById('anio').textContent = new Date().getFullYear();
+document.getElementById('linkAutor').href = linkWhatsapp(APP_INFO.soporteWhatsapp, 'Hola, vengo de DigitalSAN 👋');
+
+let perfil = requerirSesionParticipante();
+let misNumeros = [];
+let sanesAbiertos = [];
+let pagos = [];
+let tasaInfo = null;
+
+async function init() {
+  if (!perfil) return;
+  document.getElementById('saludo').textContent = `Hola, ${perfil.nombre_completo.split(' ')[0]} 👋`;
+  document.getElementById('avatarPerfil').textContent = iniciales(perfil.nombre_completo);
+  document.getElementById('nombrePerfil').textContent = perfil.nombre_completo;
+  document.getElementById('rifPerfil').textContent = perfil.rif;
+  document.getElementById('dWhatsapp').textContent = perfil.whatsapp;
+  document.getElementById('dDireccion').textContent = perfil.direccion || '—';
+
+  renderRateChip('rateChip');
+  tasaInfo = await obtenerTasaUSDT();
+
+  await cargarDatos();
+  await verificarPrimerLogin();
+}
+
+async function cargarDatos() {
+  const { data: numerosData } = await supabaseClient
+    .from('numeros_san').select('*, sanes(*)').eq('participante_id', perfil.id);
+  misNumeros = numerosData || [];
+
+  if (perfil.creado_por) {
+    const { data: sanesData } = await supabaseClient
+      .from('sanes').select('*, numeros_san(*)')
+      .eq('creador_id', perfil.creado_por)
+      .eq('metodo_asignacion', 'libre')
+      .in('estado', ['planificacion', 'activo']);
+    sanesAbiertos = (sanesData || []).filter(s => {
+      const yaTieneNumero = misNumeros.some(n => n.san_id === s.id);
+      const hayDisponibles = (s.numeros_san || []).some(n => n.estado === 'disponible');
+      return !yaTieneNumero && hayDisponibles;
+    });
+  }
+
+  const sanIds = misNumeros.map(n => n.san_id);
+  if (sanIds.length) {
+    const { data: pagosData } = await supabaseClient
+      .from('pagos').select('*, sanes(nombre, moneda_base)')
+      .eq('participante_id', perfil.id).in('san_id', sanIds)
+      .order('fecha_vencimiento', { ascending: true });
+    pagos = pagosData || [];
+  } else { pagos = []; }
+
+  renderInicio();
+  renderPagos('todos');
+  renderOtrosSanes();
+}
+
+function renderInicio() {
+  const wrap = document.getElementById('wheelContent');
+  if (!misNumeros.length) {
+    wrap.innerHTML = `<div class="empty"><div class="ico">🎯</div><b>Aún no tienes un número asignado</b><p>Cuando tu creador abra la selección lo verás aquí.</p></div>`;
+    document.getElementById('statProximoPago').textContent = '—';
+    document.getElementById('statProximoCobro').textContent = '—';
+    return;
+  }
+  const n = misNumeros[0];
+  const san = n.sanes;
+  const total = san.num_participantes;
+  const turno = n.numero;
+  const pct = Math.round((turno / total) * 100);
+  const circ = 2 * Math.PI * 46;
+  const offset = circ - (pct / 100) * circ;
+
+  wrap.innerHTML = `
+    <div class="wheel-wrap">
+      <div class="wheel">
+        <svg viewBox="0 0 110 110">
+          <defs><linearGradient id="wheelGrad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#14b8a6"/><stop offset="100%" stop-color="#7c6df6"/>
+          </linearGradient></defs>
+          <circle class="track" cx="55" cy="55" r="46"/>
+          <circle class="progress" cx="55" cy="55" r="46" stroke-dasharray="${circ}" stroke-dashoffset="${offset}"/>
+        </svg>
+        <div class="center"><b>#${turno}</b><span>de ${total}</span></div>
+      </div>
+      <div class="grow">
+        <b style="font-size:14px;">${san.nombre}</b>
+        <p class="muted mt-4" style="font-size:11.5px;">
+          ${san.tipo === 'personalizado' ? (san.descripcion_articulo || 'San personalizado') : 'San monetario'}
+          · ${ETIQUETAS_FRECUENCIA[san.frecuencia]}
+        </p>
+        <div class="flex gap-6 mt-8">
+          <span class="badge ${ETIQUETAS_ESTADO_SAN[san.estado].clase}">${ETIQUETAS_ESTADO_SAN[san.estado].texto}</span>
+        </div>
+      </div>
+    </div>
+    <div class="divider"></div>
+    <div class="stat-grid">
+      <div><div class="card-title">Cuota</div><div class="mono" style="font-size:15px;">${formatoUSD(san.monto_cuota)}</div>
+        ${tasaInfo?.tasa ? `<div class="muted" style="font-size:11px;">${formatoVES(convertirUSDaVES(san.monto_cuota, tasaInfo.tasa))}</div>` : ''}</div>
+      <div><div class="card-title">Monto total del San</div><div class="mono" style="font-size:15px;">${formatoUSD(san.monto_total)}</div></div>
+    </div>
+    <div class="divider"></div>
+    <div class="glass-row"><span class="muted" style="font-size:12px;">Inicio</span><b style="font-size:12.5px;">${formatearFecha(san.fecha_inicio)}</b></div>
+    <div class="glass-row mt-4"><span class="muted" style="font-size:12px;">Fin estimado</span><b style="font-size:12.5px;">${formatearFecha(san.fecha_fin)}</b></div>
+    ${n.fecha_turno ? `<div class="glass-row mt-4"><span class="muted" style="font-size:12px;">Tu turno de cobro</span><b style="font-size:12.5px; color:var(--gold-2);">${formatearFecha(n.fecha_turno)}</b></div>` : ''}
+  `;
+
+  const pendientes = pagos.filter(p => p.estado === 'pendiente' || p.estado === 'atrasado')
+    .sort((a, b) => new Date(a.fecha_vencimiento) - new Date(b.fecha_vencimiento));
+  document.getElementById('statProximoPago').textContent = pendientes.length ? formatearFecha(pendientes[0].fecha_vencimiento) : 'Al día ✓';
+  document.getElementById('statProximoCobro').textContent = n.fecha_turno ? formatearFecha(n.fecha_turno) : '—';
+}
+
+function renderOtrosSanes() {
+  const card = document.getElementById('cardOtrosSanes');
+  const list = document.getElementById('listaOtrosSanes');
+  if (!sanesAbiertos.length) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  list.innerHTML = sanesAbiertos.map(s => `
+    <div class="item-row">
+      <div class="avatar">${s.tipo === 'personalizado' ? '🎁' : '💰'}</div>
+      <div class="meta"><b>${s.nombre}</b><small>${formatoUSD(s.monto_cuota)} · ${ETIQUETAS_FRECUENCIA[s.frecuencia]}</small></div>
+      <div class="actions"><button class="btn btn-gold btn-sm" onclick="abrirSeleccionNumero('${s.id}')">Elegir #</button></div>
+    </div>
+  `).join('');
+}
+
+function renderPagos(filtro) {
+  const list = document.getElementById('listaPagos');
+  const datos = filtro === 'todos' ? pagos : pagos.filter(p => p.estado === filtro);
+  if (!datos.length) {
+    list.innerHTML = `<div class="empty"><div class="ico">🧾</div><b>Sin pagos aquí</b><p>No hay cuotas en este filtro.</p></div>`;
+    return;
+  }
+  list.innerHTML = datos.map(p => {
+    const est = ETIQUETAS_ESTADO_PAGO[diasHastaVencer(p.fecha_vencimiento) < 0 && p.estado === 'pendiente' ? 'atrasado' : p.estado];
+    const puedeReportar = p.estado === 'pendiente' || p.estado === 'atrasado';
+    return `
+    <div class="item-row" style="align-items:flex-start;">
+      <div class="avatar">${p.numero_cuota}</div>
+      <div class="meta">
+        <b>${p.sanes?.nombre || 'San'} · Cuota ${p.numero_cuota}</b>
+        <small>Vence ${formatearFecha(p.fecha_vencimiento)} · ${formatoUSD(p.monto_usd)}</small>
+        <div class="mt-4"><span class="badge ${est.clase}">${est.texto}</span></div>
+      </div>
+      <div class="actions">
+        ${puedeReportar ? `<button class="btn btn-primary btn-sm" onclick="abrirReportarPago('${p.id}')">Reportar</button>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+document.querySelectorAll('#filtroPagos .chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    document.querySelectorAll('#filtroPagos .chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    renderPagos(chip.dataset.filtro);
+  });
+});
+
+/* ---------- Selección de número ---------- */
+
+function abrirSeleccionNumero(sanId) {
+  const san = sanesAbiertos.find(s => s.id === sanId);
+  const numeros = (san.numeros_san || []).sort((a, b) => a.numero - b.numero);
+  const overlay = abrirSheet(`
+    <div class="sheet-header"><h3>${san.nombre}</h3><button class="btn btn-icon btn-ghost" onclick="cerrarOverlay(this)">✕</button></div>
+    <p class="muted" style="font-size:12px;">Elige el número que tendrá tu turno de cobro. Cuota: <b>${formatoUSD(san.monto_cuota)}</b> · ${ETIQUETAS_FRECUENCIA[san.frecuencia]}</p>
+    <div class="num-grid mt-12">
+      ${numeros.map(n => `<div class="num-cell ${n.estado === 'disponible' ? 'selectable' : 'taken'}" ${n.estado === 'disponible' ? `onclick="confirmarNumero('${n.id}','${sanId}',${n.numero})"` : ''}>${n.numero}</div>`).join('')}
+    </div>
+    <p class="hint text-center mt-12">Un número más bajo cobra antes; uno más alto cobra al final.</p>
+  `);
+}
+
+async function confirmarNumero(numeroRowId, sanId, numero) {
+  const { error } = await supabaseClient.from('numeros_san')
+    .update({ participante_id: perfil.id, estado: 'ocupado' })
+    .eq('id', numeroRowId).eq('estado', 'disponible');
+  if (error) { toast('Ese número ya fue tomado, elige otro', 'error'); return; }
+  document.querySelectorAll('.overlay').forEach(o => o.remove());
+  toast(`Elegiste el número ${numero} 🎉`, 'success');
+  await marcar_primer_login_completo_si_aplica();
+  await cargarDatos();
+}
+
+/* ---------- Reportar pago ---------- */
+
+function abrirReportarPago(pagoId) {
+  const p = pagos.find(x => x.id === pagoId);
+  const montoVes = tasaInfo?.tasa ? convertirUSDaVES(p.monto_usd, tasaInfo.tasa) : null;
+  abrirSheet(`
+    <div class="sheet-header"><h3>Reportar pago</h3><button class="btn btn-icon btn-ghost" onclick="cerrarOverlay(this)">✕</button></div>
+    <div class="glass tight mb-8">
+      <div class="glass-row"><span class="muted">Cuota</span><b>#${p.numero_cuota} · ${p.sanes?.nombre || ''}</b></div>
+      <div class="glass-row mt-4"><span class="muted">Monto</span><b class="mono">${formatoUSD(p.monto_usd)} ${montoVes ? '· ' + formatoVES(montoVes) : ''}</b></div>
+    </div>
+    <form id="formReportarPago">
+      <div class="field"><label>Referencia / N° de operación</label><input type="text" id="refPago" placeholder="Ej: 000123456" required></div>
+      <div class="field"><label>Comprobante (foto o captura)</label><input type="file" id="comprobantePago" accept="image/*,.pdf"></div>
+      <div class="error-text" id="errReportar"></div>
+      <button type="submit" class="btn btn-primary btn-block" id="btnReportar">Enviar reporte</button>
+    </form>
+  `);
+  document.getElementById('formReportarPago').addEventListener('submit', (e) => enviarReportePago(e, p));
+}
+
+async function enviarReportePago(e, pago) {
+  e.preventDefault();
+  const btn = document.getElementById('btnReportar');
+  const errEl = document.getElementById('errReportar');
+  botonCargando(btn, true);
+  errEl.textContent = '';
+
+  let comprobanteUrl = null;
+  const file = document.getElementById('comprobantePago').files[0];
+  try {
+    if (file) {
+      const ruta = `${pago.id}-${Date.now()}-${file.name}`;
+      const { error: upErr } = await supabaseClient.storage.from('comprobantes').upload(ruta, file);
+      if (upErr) throw upErr;
+      const { data: pub } = supabaseClient.storage.from('comprobantes').getPublicUrl(ruta);
+      comprobanteUrl = pub.publicUrl;
+    }
+    const referencia = document.getElementById('refPago').value;
+    const montoVes = tasaInfo?.tasa ? convertirUSDaVES(pago.monto_usd, tasaInfo.tasa) : null;
+
+    const { error } = await supabaseClient.from('pagos').update({
+      estado: 'reportado', referencia, comprobante_url: comprobanteUrl,
+      fecha_pago: new Date().toISOString(), tasa_aplicada: tasaInfo?.tasa || null, monto_ves: montoVes
+    }).eq('id', pago.id).eq('estado', pago.estado);
+
+    if (error) throw error;
+    document.querySelectorAll('.overlay').forEach(o => o.remove());
+    toast('Pago reportado. Tu creador lo validará pronto ✅', 'success');
+    await cargarDatos();
+  } catch (err) {
+    errEl.textContent = 'No se pudo enviar el reporte. Intenta de nuevo.';
+  } finally {
+    botonCargando(btn, false, 'Enviar reporte');
+  }
+}
+
+/* ---------- Primer login ---------- */
+
+async function verificarPrimerLogin() {
+  if (!perfil.primer_login) return;
+
+  if (sanesAbiertos.length) {
+    const s = sanesAbiertos[0];
+    abrirSeleccionNumeroBienvenida(s);
+  } else {
+    abrirSheet(`
+      <div class="sheet-header"><h3>¡Bienvenido a DigitalSAN! 👋</h3></div>
+      <p class="muted" style="font-size:13px;">
+        ${misNumeros.length
+          ? `Ya estás participando en <b>${misNumeros.length}</b> San${misNumeros.length > 1 ? 'es' : ''}. Aquí verás tus pagos, tu turno de cobro y la tasa del dólar actualizada.`
+          : 'Tu creador aún no ha abierto la selección de números. En cuanto lo haga, lo verás aquí para elegir tu número.'}
+      </p>
+      <button class="btn btn-primary btn-block mt-16" onclick="cerrarBienvenida()">Entendido</button>
+    `, { centered: true });
+  }
+}
+
+function abrirSeleccionNumeroBienvenida(san) {
+  const numeros = (san.numeros_san || []).sort((a, b) => a.numero - b.numero);
+  abrirSheet(`
+    <div class="sheet-header"><h3>¡Bienvenido! Elige tu número 🎉</h3></div>
+    <p class="muted" style="font-size:12.5px;"><b>${san.nombre}</b> · Cuota ${formatoUSD(san.monto_cuota)} · ${ETIQUETAS_FRECUENCIA[san.frecuencia]} · Total ${formatoUSD(san.monto_total)}</p>
+    <div class="num-grid mt-12">
+      ${numeros.map(n => `<div class="num-cell ${n.estado === 'disponible' ? 'selectable' : 'taken'}" ${n.estado === 'disponible' ? `onclick="confirmarNumero('${n.id}','${san.id}',${n.numero})"` : ''}>${n.numero}</div>`).join('')}
+    </div>
+  `, { centered: true });
+}
+
+async function cerrarBienvenida() {
+  document.querySelectorAll('.overlay').forEach(o => o.remove());
+  await marcar_primer_login_completo_si_aplica();
+}
+
+async function marcar_primer_login_completo_si_aplica() {
+  if (!perfil.primer_login) return;
+  await supabaseClient.rpc('marcar_primer_login_completo', { p_participante_id: perfil.id });
+  perfil.primer_login = false;
+  guardarSesionParticipante(perfil);
+}
+
+/* ---------- Navegación inferior ---------- */
+
+document.querySelectorAll('.nav-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    ['Inicio', 'Pagos', 'Perfil'].forEach(v => {
+      document.getElementById('view' + v).classList.toggle('hidden', v !== btn.dataset.view);
+    });
+  });
+});
+
+/* ---------- Perfil ---------- */
+
+document.getElementById('btnLogout').addEventListener('click', cerrarSesionParticipante);
+
+document.getElementById('formPassword').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errEl = document.getElementById('errPass');
+  errEl.textContent = '';
+  const actual = document.getElementById('passActual').value;
+  const nueva = document.getElementById('passNueva').value;
+  const { data, error } = await supabaseClient.rpc('cambiar_password_participante', {
+    p_participante_id: perfil.id, p_password_actual: actual, p_password_nueva: nueva
+  });
+  if (error || !data.ok) { errEl.textContent = data?.error || 'No se pudo actualizar'; return; }
+  toast('Contraseña actualizada ✅', 'success');
+  document.getElementById('formPassword').reset();
+});
+
+init();
+</script>
+</body>
+</html>
