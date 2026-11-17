@@ -93,6 +93,7 @@ function traducirErrorAuth(error) {
   if (/invalid login credentials/i.test(msg) || code === 'invalid_credentials') return 'Correo o contraseña incorrectos';
   if (/email not confirmed/i.test(msg) || code === 'email_not_confirmed') return 'Tu correo aún no está confirmado. Confírmalo en Supabase → Authentication → Users (o ejecuta database/crear-admin.sql).';
   if (/already registered|already been registered/i.test(msg) || code === 'user_already_exists') return 'Ese correo ya está registrado en Supabase.';
+  if (code === 'over_email_send_rate_limit' || /email rate limit/i.test(msg)) return 'Supabase alcanzó su límite de correos por hora. Espera ~1 hora, o crea el usuario en Authentication → Users y usa "Ya creé el usuario en Supabase".';
   if (error && (error.status === 429 || /rate limit|too many/i.test(msg))) return 'Demasiados intentos. Espera unos minutos y vuelve a intentar.';
   if (/Failed to fetch|NetworkError|fetch/i.test(msg)) return 'No se pudo conectar con el servidor. Verifica tu internet.';
   if (/invalid api key|apikey/i.test(msg)) return 'La llave de Supabase (config.js) no es válida.';
