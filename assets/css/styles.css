@@ -317,3 +317,129 @@ textarea{resize:vertical; min-height:70px;}
   body{padding:18px 0;}
   .app-shell{border-radius:28px; overflow:hidden; box-shadow:0 30px 80px rgba(0,0,0,0.5); border:1px solid var(--glass-border); min-height:calc(100dvh - 36px);}
 }
+
+/* =========================================================
+   v3 — Logo, iconos, campana, anti-copia, escritorio
+   ========================================================= */
+
+/* ---------- Anti-copia (los campos de formulario siguen siendo editables) ---------- */
+html, body{
+  -webkit-user-select:none; user-select:none;
+  -webkit-touch-callout:none; -webkit-text-size-adjust:100%;
+}
+input, textarea, select, [contenteditable="true"]{
+  -webkit-user-select:text; user-select:text;
+}
+img, svg{ -webkit-user-drag:none; user-drag:none; }
+@media print{ body{ display:none !important; } }
+
+/* ---------- Logo de la app ---------- */
+.brand-logo{
+  width:32px; height:32px; border-radius:10px; flex:none; display:block;
+  box-shadow:0 4px 14px rgba(20,184,166,0.35); pointer-events:none;
+}
+.login-hero .brand-logo{ width:76px; height:76px; border-radius:22px; margin:0 auto 12px; box-shadow:0 10px 30px rgba(20,184,166,0.35); }
+
+/* ---------- Iconos SVG (reemplazan emojis) ---------- */
+.i{
+  width:18px; height:18px; flex:none; display:block;
+  fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round;
+}
+.btn-icon .i{ width:19px; height:19px; }
+.btn .i{ width:16px; height:16px; }
+.item-row .avatar .i{ width:18px; height:18px; }
+.empty .ico{ display:flex; justify-content:center; color:var(--text-2); }
+.empty .ico .i{ width:36px; height:36px; stroke-width:1.6; }
+.btn-gold .i, .btn-primary .i{ stroke:currentColor; }
+
+/* ---------- Barra superior: acciones + campana ---------- */
+.topbar-actions{ display:flex; align-items:center; gap:8px; }
+.bell-btn{ position:relative; }
+.bell-badge{
+  position:absolute; top:-5px; right:-5px; min-width:18px; height:18px; padding:0 4px;
+  border-radius:9px; background:var(--danger); color:#fff; font-size:10px; font-weight:700;
+  display:flex; align-items:center; justify-content:center; border:2px solid var(--bg-0);
+}
+.live-dot{ width:7px; height:7px; border-radius:50%; background:var(--text-2); display:inline-block; margin-right:6px; }
+.live-dot.on{ background:var(--success); box-shadow:0 0 8px var(--success); }
+
+/* Centro de notificaciones */
+.notif-item{
+  display:flex; gap:10px; padding:10px 12px; border-radius:14px;
+  background:rgba(255,255,255,0.04); border:1px solid var(--glass-border);
+}
+.notif-item.nueva{ border-left:3px solid var(--teal); background:rgba(20,184,166,0.07); }
+.notif-item .ni-ico{ width:34px; height:34px; border-radius:10px; flex:none; display:flex; align-items:center; justify-content:center; background:rgba(20,184,166,0.15); color:var(--teal-2); }
+.notif-item b{ font-size:13px; display:block; }
+.notif-item small{ font-size:11px; color:var(--text-2); display:block; margin-top:2px; }
+.notif-item .ni-hora{ font-size:10px; color:var(--text-2); margin-top:3px; }
+
+/* ---------- Escritorio / tablet ancha: menú lateral + interfaz completa ---------- */
+@media (min-width:900px){
+  body{ padding:0; }
+  .app-shell{
+    max-width:none; margin:0; border-radius:0; border:none; box-shadow:none; overflow:visible;
+    min-height:100dvh; padding:0 0 0 240px;
+  }
+  .app-shell.no-nav{ padding:0; }
+
+  .app-topbar{
+    position:fixed; top:0; left:0; right:0; height:64px; z-index:50;
+    padding:0 28px; display:flex; align-items:center;
+    background:rgba(9,15,28,0.82); border-bottom:1px solid var(--glass-border);
+  }
+  .app-topbar .row{ width:100%; }
+  .brand .brand-logo{ width:36px; height:36px; }
+  .brand strong{ font-size:17px; }
+  .brand span{ font-size:11.5px; }
+
+  .page{ width:100%; max-width:1260px; margin:0 auto; padding:88px 36px 20px; gap:16px; }
+  .app-shell.no-nav .page{ max-width:460px; padding-top:48px; }
+
+  /* menú lateral */
+  .bottom-nav{
+    top:64px; bottom:0; left:0; right:auto; width:240px; display:block;
+    padding:20px 14px; border-right:1px solid var(--glass-border);
+    background:rgba(9,15,28,0.55); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
+    pointer-events:auto;
+  }
+  .bottom-nav .bar{
+    flex-direction:column; align-items:stretch; justify-content:flex-start; gap:6px;
+    max-width:none; width:100%; height:auto; padding:0;
+    background:transparent; border:none; box-shadow:none; backdrop-filter:none; -webkit-backdrop-filter:none; border-radius:0;
+  }
+  .nav-btn{ flex:none; flex-direction:row; justify-content:flex-start; gap:12px; padding:12px 14px; border-radius:12px; }
+  .nav-btn svg{ width:20px; height:20px; }
+  .nav-btn span{ font-size:13.5px; }
+  .nav-btn:hover{ background:rgba(255,255,255,0.05); color:var(--text-0); }
+  .nav-btn.active:hover{ background:rgba(20,184,166,0.16); color:var(--teal-2); }
+
+  /* rejillas: aprovechan el ancho */
+  .stat-grid{ grid-template-columns:repeat(auto-fit, minmax(210px, 1fr)); gap:14px; }
+  .stat-card{ padding:16px 18px; }
+  .stat-card .v{ font-size:26px; }
+  .list{ display:grid; grid-template-columns:repeat(auto-fill, minmax(360px, 1fr)); gap:12px; align-items:start; }
+  .list > .empty{ grid-column:1 / -1; }
+  #wheelContent{ display:grid; grid-template-columns:repeat(auto-fill, minmax(430px, 1fr)); gap:14px; align-items:start; }
+  #wheelContent > .glass{ margin-top:0 !important; }
+  .page section > .btn-block{ width:auto; min-width:260px; }
+  .page section > .field{ max-width:440px; }
+  #viewResumen .glass.mt-12{ max-width:620px; }
+  #viewPerfil{ max-width:560px; }
+  .chips{ flex-wrap:wrap; overflow:visible; }
+  .glass{ padding:18px; }
+
+  /* ventanas emergentes: modales centrados */
+  .overlay{ align-items:center; padding:24px; }
+  .sheet{ max-width:560px; border-radius:24px; padding:20px; animation:popIn .18s ease; }
+  .sheet-handle{ display:none; }
+  .num-grid{ grid-template-columns:repeat(auto-fill, minmax(54px, 1fr)); }
+  #toastHost{ top:78px; }
+  .app-footer{ padding:18px 14px 20px; }
+}
+
+/* pantallas muy anchas */
+@media (min-width:1500px){
+  .page{ max-width:1400px; }
+  #wheelContent{ grid-template-columns:repeat(auto-fill, minmax(480px, 1fr)); }
+}
