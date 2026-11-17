@@ -5,9 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <title>DigitalSAN · Panel administrador</title>
 <meta name="theme-color" content="#070c16">
+<link rel="icon" type="image/svg+xml" href="./assets/img/favicon.svg?v=2">
+<link rel="icon" type="image/png" sizes="32x32" href="./assets/img/favicon-32.png?v=2">
+<link rel="shortcut icon" href="./assets/img/favicon.ico?v=2">
+<link rel="apple-touch-icon" href="./assets/img/apple-touch-icon.png?v=2">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="./assets/css/styles.css">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="stylesheet" href="./assets/css/styles.css?v=2">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49"></script>
 </head>
 <body>
 <div class="app-shell">
@@ -35,9 +39,9 @@
 
       <div class="glass mt-12">
         <div class="card-title">Tasa USDT / VES</div>
-        <p class="muted" style="font-size:12px;">Se obtiene automáticamente (referencia Binance P2P). Si la API falla, se usa este respaldo manual.</p>
+        <p class="muted" style="font-size:12px;">Se obtiene automáticamente (referencia del mercado paralelo). Si la API falla, se usa este respaldo manual.</p>
         <div class="field mt-8"><label>Tasa manual de respaldo (Bs. por USDT)</label>
-          <div class="flex gap-8"><input type="number" step="0.01" id="tasaManual"><button class="btn btn-gold" id="btnGuardarTasa">Guardar</button></div>
+          <div class="flex gap-8"><input type="number" step="0.01" min="0" id="tasaManual"><button class="btn btn-gold" id="btnGuardarTasa">Guardar</button></div>
         </div>
       </div>
     </section>
@@ -91,16 +95,17 @@
   </div>
 </div>
 
-<script src="./assets/js/config.js"></script>
-<script src="./assets/js/utils.js"></script>
-<script src="./assets/js/auth.js"></script>
-<script src="./assets/js/rate-service.js"></script>
+<script src="./assets/js/config.js?v=2"></script>
+<script src="./assets/js/utils.js?v=2"></script>
+<script src="./assets/js/auth.js?v=2"></script>
+<script src="./assets/js/rate-service.js?v=2"></script>
 <script>
 document.getElementById('anio').textContent = new Date().getFullYear();
 document.getElementById('linkAutor').href = linkWhatsapp(APP_INFO.soporteWhatsapp, 'Hola, vengo de DigitalSAN 👋');
 
 let perfil = null;
 let creadores = [];
+let participantesAll = [];
 let sanesGlobal = [];
 
 async function init() {
@@ -112,25 +117,32 @@ async function init() {
 
   renderRateChip('rateChip');
 
-  const { data: cfg } = await supabaseClient.from('configuracion').select('valor').eq('clave', 'tasa_manual_usdt').single();
-  document.getElementById('tasaManual').value = cfg?.valor || '';
+  try {
+    const { data: cfg } = await supabaseClient.from('configuracion').select('valor').eq('clave', 'tasa_manual_usdt').maybeSingle();
+    document.getElementById('tasaManual').value = cfg && Number(cfg.valor) ? cfg.valor : '';
+  } catch (e) { /* no crítico */ }
 
   await cargarTodo();
 }
 
 async function cargarTodo() {
-  const { data: creadoresData } = await supabaseClient.from('perfiles').select('*').eq('rol', 'creador').order('created_at', { ascending: false });
-  creadores = creadoresData || [];
+  const [rPerfiles, rSanes] = await Promise.all([
+    supabaseClient.from('perfiles').select(PERFIL_COLS).in('rol', ['creador', 'participante']).order('created_at', { ascending: false }),
+    supabaseClient.from('sanes').select('*, perfiles!creador_id(nombre_completo)').order('created_at', { ascending: false })
+  ]);
+  if (rPerfiles.error) { console.error(rPerfiles.error); toast('No se pudieron cargar los usuarios: ' + rPerfiles.error.message, 'error'); }
+  if (rSanes.error) { console.error(rSanes.error); toast('No se pudieron cargar los San: ' + rSanes.error.message, 'error'); }
 
-  const { count: totalParticipantes } = await supabaseClient.from('perfiles').select('*', { count: 'exact', head: true }).eq('rol', 'participante');
+  const todos = rPerfiles.data || [];
+  creadores = todos.filter(p => p.rol === 'creador');
+  participantesAll = todos.filter(p => p.rol === 'participante');
+  sanesGlobal = rSanes.data || [];
 
-  const { data: sanesData } = await supabaseClient.from('sanes').select('*, perfiles(nombre_completo)').order('created_at', { ascending: false });
-  sanesGlobal = sanesData || [];
-
+  const vigentes = sanesGlobal.filter(s => s.estado !== 'cancelado');
   document.getElementById('statCreadores').textContent = creadores.length;
-  document.getElementById('statParticipantesGlobal').textContent = totalParticipantes || 0;
+  document.getElementById('statParticipantesGlobal').textContent = participantesAll.length;
   document.getElementById('statSanesGlobal').textContent = sanesGlobal.filter(s => s.estado === 'activo').length;
-  document.getElementById('statMontoGlobal').textContent = formatoUSD(sanesGlobal.reduce((acc, s) => acc + Number(s.monto_total || 0), 0));
+  document.getElementById('statMontoGlobal').textContent = formatoUSD(vigentes.reduce((acc, s) => acc + Number(s.monto_total || 0), 0));
 
   renderCreadores();
   renderSanesGlobal();
@@ -141,49 +153,105 @@ async function cargarTodo() {
 function renderCreadores() {
   const list = document.getElementById('listaCreadores');
   if (!creadores.length) { list.innerHTML = `<div class="empty"><div class="ico">🧑‍💼</div><b>Sin creadores registrados</b><p>Agrega el primero para que pueda crear sus San.</p></div>`; return; }
-  list.innerHTML = creadores.map(c => `
+  list.innerHTML = creadores.map(c => {
+    const nSan = sanesGlobal.filter(s => s.creador_id === c.id).length;
+    const nPart = participantesAll.filter(p => p.creado_por === c.id).length;
+    return `
     <div class="item-row">
-      <div class="avatar">${iniciales(c.nombre_completo)}</div>
-      <div class="meta"><b>${c.nombre_completo}</b><small>${c.email || ''} · ${c.whatsapp}</small></div>
+      <div class="avatar">${esc(iniciales(c.nombre_completo))}</div>
+      <div class="meta"><b>${esc(c.nombre_completo)}</b><small>${esc(c.email || '')} · ${esc(c.whatsapp)}</small><small style="display:block;">${nSan} San · ${nPart} participantes</small></div>
       <div class="actions">
         <span class="badge ${c.activo ? 'badge-success' : 'badge-danger'}">${c.activo ? 'Activo' : 'Inactivo'}</span>
-        <button class="btn btn-icon btn-ghost" onclick="toggleActivoCreador('${c.id}',${c.activo})">⏻</button>
+        <button class="btn btn-icon btn-ghost" title="Activar / desactivar" onclick="toggleActivoCreador('${c.id}')">⏻</button>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 function abrirCrearCreador() {
   abrirSheet(`
     <div class="sheet-header"><h3>Nuevo creador</h3><button class="btn btn-icon btn-ghost" onclick="cerrarOverlay(this)">✕</button></div>
-    <div class="glass tight mb-8">
-      <p class="hint">Paso 1 — En Supabase Dashboard: Authentication → Users → <b>Add user</b>, crea el correo y contraseña del creador y copia su UUID.</p>
-    </div>
     <form id="formCrearCreador">
-      <div class="field"><label>UUID del usuario (Supabase Auth)</label><input type="text" id="cUuid" placeholder="00000000-0000-0000-0000-000000000000" required></div>
       <div class="field"><label>Nombre completo</label><input type="text" id="cNombre" required></div>
-      <div class="field"><label>Correo</label><input type="email" id="cEmail" required></div>
-      <div class="field"><label>WhatsApp</label><input type="text" id="cWhatsapp" required></div>
+      <div class="field"><label>Correo (será su usuario)</label><input type="email" id="cEmail" required></div>
+      <div class="field"><label>WhatsApp</label><input type="text" id="cWhatsapp" placeholder="0412-1234567" required></div>
+      <div class="field"><label>Contraseña inicial (mín. 6)</label><input type="text" id="cPassword" minlength="6" value="${esc(generarPasswordTemporal())}" required></div>
+      <details class="mb-8">
+        <summary class="hint" style="cursor:pointer;">Avanzado: ya creé el usuario en Supabase</summary>
+        <div class="field mt-8"><label>UUID del usuario (opcional)</label><input type="text" id="cUuid" placeholder="00000000-0000-0000-0000-000000000000"></div>
+        <p class="hint">Si pegas el UUID no se crea ningún usuario nuevo: solo se vincula el perfil.</p>
+      </details>
       <div class="error-text" id="errCrearCreador"></div>
-      <button type="submit" class="btn btn-primary btn-block">Registrar creador</button>
+      <button type="submit" class="btn btn-primary btn-block" id="btnCrearCreador">Registrar creador</button>
     </form>
   `);
-  document.getElementById('formCrearCreador').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const $ = id => document.getElementById(id);
-    const { error } = await supabaseClient.from('perfiles').insert({
-      auth_user_id: $('cUuid').value, rol: 'creador', nombre_completo: $('cNombre').value,
-      email: $('cEmail').value, whatsapp: $('cWhatsapp').value
-    });
-    if (error) { document.getElementById('errCrearCreador').textContent = 'No se pudo registrar. Verifica el UUID.'; return; }
-    document.querySelectorAll('.overlay').forEach(o => o.remove());
-    toast('Creador registrado ✅', 'success');
-    await cargarTodo();
-  });
+  document.getElementById('formCrearCreador').addEventListener('submit', crearCreador);
 }
 
-async function toggleActivoCreador(id, activoActual) {
-  await supabaseClient.from('perfiles').update({ activo: !activoActual }).eq('id', id);
-  toast('Actualizado', 'success');
+async function crearCreador(e) {
+  e.preventDefault();
+  const $ = id => document.getElementById(id);
+  const btn = $('btnCrearCreador');
+  const errEl = $('errCrearCreador');
+  errEl.textContent = '';
+  botonCargando(btn, true);
+  try {
+    const nombre = $('cNombre').value.trim();
+    const email = $('cEmail').value.trim();
+    const whatsapp = $('cWhatsapp').value.trim();
+    const password = $('cPassword').value;
+    let uid = $('cUuid').value.trim();
+    const usoUuid = !!uid;
+    let requiereConfirmacion = false;
+
+    if (uid && !/^[0-9a-fA-F-]{36}$/.test(uid)) throw new Error('El UUID no tiene un formato válido.');
+
+    if (!uid) {
+      if (password.length < 6) throw new Error('La contraseña debe tener al menos 6 caracteres.');
+      // Cliente auxiliar: crea el usuario SIN tocar la sesión del administrador
+      const aux = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: 'digitalsan-aux', lock: async (n, t, fn) => await fn() }
+      });
+      const { data, error } = await conTimeout(aux.auth.signUp({ email, password }), 20000, 'timeout');
+      if (error) throw new Error(traducirErrorAuth(error));
+      if (!data.user || (data.user.identities && data.user.identities.length === 0)) {
+        throw new Error('Ese correo ya existe en Supabase. Pega su UUID en "Avanzado" para vincularlo.');
+      }
+      uid = data.user.id;
+      requiereConfirmacion = !data.session;
+    }
+
+    const { error } = await supabaseClient.from('perfiles').insert({
+      auth_user_id: uid, rol: 'creador', nombre_completo: nombre, email, whatsapp
+    });
+    if (error) throw new Error('No se pudo guardar el perfil: ' + error.message);
+
+    cerrarTodosOverlays();
+    toast('Creador registrado ✅', 'success');
+    await cargarTodo();
+
+    if (!usoUuid) {
+      const mensaje = `Hola ${nombre} 👋, ya tienes acceso de *Creador* en DigitalSAN.\n\nCorreo: ${email}\nContraseña: ${password}\n\nEntra en la pestaña "Creador" de la página de inicio.`;
+      abrirSheet(`
+        <div class="sheet-header"><h3>Compartir acceso</h3></div>
+        ${requiereConfirmacion ? `<p class="hint" style="color:var(--warn);">⚠️ Tu proyecto exige confirmar el correo: el creador recibió un email de confirmación. Si no llega, confírmalo en Supabase → Authentication → Users.</p>` : ''}
+        <div class="glass tight mt-8 mono" style="font-size:12px;">Correo: ${esc(email)}<br>Clave: ${esc(password)}</div>
+        <button class="btn btn-primary btn-block mt-12" data-href="${esc(linkWhatsapp(whatsapp, mensaje))}" onclick="window.open(this.dataset.href,'_blank')">Enviar por WhatsApp</button>
+      `, { centered: true });
+    }
+  } catch (err) {
+    errEl.textContent = err.message === 'timeout' ? 'El servidor tardó demasiado. Intenta de nuevo.' : err.message;
+  } finally {
+    botonCargando(btn, false, 'Registrar creador');
+  }
+}
+
+async function toggleActivoCreador(id) {
+  const c = creadores.find(x => x.id === id);
+  if (!c) return;
+  const { error } = await supabaseClient.from('perfiles').update({ activo: !c.activo }).eq('id', id);
+  if (error) { toast('No se pudo actualizar: ' + error.message, 'error'); return; }
+  toast(c.activo ? 'Creador desactivado' : 'Creador activado', 'success');
   await cargarTodo();
 }
 
@@ -193,11 +261,11 @@ function renderSanesGlobal() {
   const list = document.getElementById('listaSanesGlobal');
   if (!sanesGlobal.length) { list.innerHTML = `<div class="empty"><div class="ico">📋</div><b>Sin San todavía</b></div>`; return; }
   list.innerHTML = sanesGlobal.map(s => {
-    const est = ETIQUETAS_ESTADO_SAN[s.estado];
+    const est = ETIQUETAS_ESTADO_SAN[s.estado] || { texto: s.estado, clase: 'badge-muted' };
     return `
     <div class="glass tight">
       <div class="glass-row">
-        <div><b style="font-size:13px;">${s.nombre}</b><div class="muted" style="font-size:11px;">Por ${s.perfiles?.nombre_completo || '—'} · ${formatoUSD(s.monto_total)}</div></div>
+        <div><b style="font-size:13px;">${esc(s.nombre)}</b><div class="muted" style="font-size:11px;">Por ${esc(s.perfiles?.nombre_completo || '—')} · ${formatoUSD(s.monto_total)}</div></div>
         <span class="badge ${est.clase}">${est.texto}</span>
       </div>
     </div>`;
@@ -208,7 +276,8 @@ function renderSanesGlobal() {
 
 document.getElementById('btnGuardarTasa').addEventListener('click', async () => {
   const valor = document.getElementById('tasaManual').value;
-  await guardarTasaManual(valor);
+  const { error } = await guardarTasaManual(valor);
+  if (error) { toast('No se pudo guardar: ' + error.message, 'error'); return; }
   toast('Tasa de respaldo guardada', 'success');
 });
 

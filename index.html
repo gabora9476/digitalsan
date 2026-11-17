@@ -5,10 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <title>DigitalSAN · Iniciar sesión</title>
 <meta name="theme-color" content="#070c16">
+<link rel="icon" type="image/svg+xml" href="./assets/img/favicon.svg?v=2">
+<link rel="icon" type="image/png" sizes="32x32" href="./assets/img/favicon-32.png?v=2">
+<link rel="shortcut icon" href="./assets/img/favicon.ico?v=2">
+<link rel="apple-touch-icon" href="./assets/img/apple-touch-icon.png?v=2">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="./assets/css/styles.css">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="stylesheet" href="./assets/css/styles.css?v=2">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49"></script>
 </head>
 <body>
 <div class="app-shell no-nav">
@@ -31,7 +35,7 @@
       <form id="formParticipante" class="mt-16">
         <div class="field">
           <label>Cédula / RIF</label>
-          <input type="text" id="pRif" placeholder="V-12345678" autocomplete="username" required>
+          <input type="text" id="pRif" placeholder="V-12345678" autocomplete="username" autocapitalize="characters" required>
         </div>
         <div class="field">
           <label>Contraseña</label>
@@ -63,6 +67,7 @@
       <a id="linkSoporte" href="#" target="_blank" class="btn btn-ghost btn-sm mt-8">
         Escribir por WhatsApp
       </a>
+      <p class="hint mt-8"><a href="#" id="linkDiagnostico">¿No carga? Probar conexión</a></p>
     </div>
   </div>
 
@@ -72,8 +77,9 @@
   </div>
 </div>
 
-<script src="./assets/js/config.js"></script>
-<script src="./assets/js/utils.js"></script>
+<script src="./assets/js/config.js?v=2"></script>
+<script src="./assets/js/utils.js?v=2"></script>
+<script src="./assets/js/auth.js?v=2"></script>
 <script>
 document.getElementById('anio').textContent = new Date().getFullYear();
 document.getElementById('linkAutor').href = linkWhatsapp(APP_INFO.soporteWhatsapp, 'Hola, vengo de DigitalSAN 👋');
@@ -90,6 +96,8 @@ tabs.forEach(tab => {
     tabs.forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
     rolActivo = tab.dataset.role;
+    document.getElementById('errEmail').textContent = '';
+    document.getElementById('errParticipante').textContent = '';
     if (rolActivo === 'participante') {
       formParticipante.classList.remove('hidden');
       formEmail.classList.add('hidden');
@@ -103,16 +111,15 @@ tabs.forEach(tab => {
   });
 });
 
-// Si ya hay sesión activa, redirige directo
+// Si ya hay sesión activa, redirige directo (sin bucles: solo si el perfil se leyó bien)
 (async () => {
-  const sesionParticipante = obtenerSesionParticipante();
-  if (sesionParticipante) { window.location.href = 'participante.html'; return; }
-  const { data } = await supabaseClient.auth.getSession();
-  if (data?.session) {
-    const { data: perfil } = await supabaseClient.from('perfiles').select('rol').eq('auth_user_id', data.session.user.id).single();
-    if (perfil?.rol === 'admin') window.location.href = 'admin.html';
-    else if (perfil?.rol === 'creador') window.location.href = 'creador.html';
-  }
+  try {
+    if (obtenerSesionParticipante()) { window.location.href = 'participante.html'; return; }
+    const r = await conTimeout(resolverPerfilActual(), 12000, 'timeout');
+    if (r.perfil && r.perfil.activo && (r.perfil.rol === 'admin' || r.perfil.rol === 'creador')) {
+      window.location.href = rutaPorRol(r.perfil.rol);
+    }
+  } catch (e) { /* se queda en el login */ }
 })();
 
 formParticipante.addEventListener('submit', async (e) => {
@@ -121,12 +128,16 @@ formParticipante.addEventListener('submit', async (e) => {
   const errEl = document.getElementById('errParticipante');
   errEl.textContent = '';
   botonCargando(btn, true);
-  const rif = document.getElementById('pRif').value;
-  const pass = document.getElementById('pPassword').value;
-  const res = await loginParticipante(rif, pass);
-  botonCargando(btn, false, 'Ingresar');
-  if (!res.ok) { errEl.textContent = res.error; return; }
-  window.location.href = 'participante.html';
+  try {
+    const res = await loginParticipante(document.getElementById('pRif').value, document.getElementById('pPassword').value);
+    if (!res.ok) { errEl.textContent = res.error; return; }
+    window.location.href = 'participante.html';
+  } catch (err) {
+    console.error(err);
+    errEl.textContent = 'Error inesperado: ' + (err.message || err);
+  } finally {
+    botonCargando(btn, false, 'Ingresar');
+  }
 });
 
 formEmail.addEventListener('submit', async (e) => {
@@ -135,17 +146,47 @@ formEmail.addEventListener('submit', async (e) => {
   const errEl = document.getElementById('errEmail');
   errEl.textContent = '';
   botonCargando(btn, true);
-  const email = document.getElementById('eEmail').value;
-  const pass = document.getElementById('ePassword').value;
-  const res = await loginConEmail(email, pass);
-  botonCargando(btn, false, 'Ingresar');
-  if (!res.ok) { errEl.textContent = res.error; return; }
-  if (res.perfil.rol !== rolActivo) {
-    errEl.textContent = `Esta cuenta no tiene permisos de ${rolActivo}.`;
-    await supabaseClient.auth.signOut();
-    return;
+  try {
+    const res = await loginConEmail(document.getElementById('eEmail').value, document.getElementById('ePassword').value);
+    if (!res.ok) { errEl.textContent = res.error; return; }
+    if (res.perfil.rol !== rolActivo) {
+      const rolReal = res.perfil.rol === 'admin' ? 'Admin' : 'Creador';
+      errEl.textContent = `Esta cuenta es de tipo ${rolReal}. Usa la pestaña "${rolReal}".`;
+      await cerrarSesionLocal();
+      return;
+    }
+    window.location.href = rutaPorRol(res.perfil.rol);
+  } catch (err) {
+    console.error(err);
+    errEl.textContent = 'Error inesperado: ' + (err.message || err);
+  } finally {
+    botonCargando(btn, false, 'Ingresar');
   }
-  window.location.href = res.perfil.rol === 'admin' ? 'admin.html' : 'creador.html';
+});
+
+/* ---------- Diagnóstico de conexión ---------- */
+document.getElementById('linkDiagnostico').addEventListener('click', async (e) => {
+  e.preventDefault();
+  const o = abrirSheet(`<div class="sheet-header"><h3>Probando conexión…</h3></div><div id="diagOut" class="muted" style="font-size:13px;line-height:1.7;"><span class="loader"></span></div><button class="btn btn-ghost btn-block mt-12" onclick="cerrarOverlay(this)">Cerrar</button>`, { centered: true });
+  const out = o.querySelector('#diagOut');
+  const filas = [];
+  const hdr = { apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + SUPABASE_ANON_KEY };
+  const probar = async (nombre, url, ayudas) => {
+    try {
+      const r = await conTimeout(fetch(url, { headers: hdr }), 9000, 'timeout');
+      const ok = r.ok;
+      filas.push(`${ok ? '✅' : '❌'} <b>${nombre}</b>: HTTP ${r.status}${ok ? '' : ' — ' + esc(ayudas[r.status] || 'respuesta inesperada')}`);
+    } catch (err) {
+      filas.push(`❌ <b>${nombre}</b>: sin respuesta — ${err.message === 'timeout' ? 'el proyecto podría estar pausado o la URL es incorrecta' : 'bloqueado por la red/navegador'}`);
+    }
+  };
+  filas.push(`✅ <b>Librería Supabase</b>: cargada`);
+  await probar('Autenticación', `${SUPABASE_URL}/auth/v1/health`, { 401: 'llave anon inválida o desactivada', 404: 'URL del proyecto incorrecta' });
+  await probar('Base de datos', `${SUPABASE_URL}/rest/v1/configuracion?select=clave&limit=1`, {
+    401: 'llave anon inválida o desactivada', 404: 'faltan las tablas: ejecuta database/schema.sql', 403: 'permisos: ejecuta database/schema.sql'
+  });
+  out.innerHTML = filas.join('<br>');
+  o.querySelector('h3').textContent = 'Resultado';
 });
 </script>
 </body>

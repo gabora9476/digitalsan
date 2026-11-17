@@ -5,9 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <title>DigitalSAN · Panel del creador</title>
 <meta name="theme-color" content="#070c16">
+<link rel="icon" type="image/svg+xml" href="./assets/img/favicon.svg?v=2">
+<link rel="icon" type="image/png" sizes="32x32" href="./assets/img/favicon-32.png?v=2">
+<link rel="shortcut icon" href="./assets/img/favicon.ico?v=2">
+<link rel="apple-touch-icon" href="./assets/img/apple-touch-icon.png?v=2">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="./assets/css/styles.css">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="stylesheet" href="./assets/css/styles.css?v=2">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49"></script>
 </head>
 <body>
 <div class="app-shell">
@@ -99,10 +103,10 @@
   </div>
 </div>
 
-<script src="./assets/js/config.js"></script>
-<script src="./assets/js/utils.js"></script>
-<script src="./assets/js/auth.js"></script>
-<script src="./assets/js/rate-service.js"></script>
+<script src="./assets/js/config.js?v=2"></script>
+<script src="./assets/js/utils.js?v=2"></script>
+<script src="./assets/js/auth.js?v=2"></script>
+<script src="./assets/js/rate-service.js?v=2"></script>
 <script>
 document.getElementById('anio').textContent = new Date().getFullYear();
 document.getElementById('linkAutor').href = linkWhatsapp(APP_INFO.soporteWhatsapp, 'Hola, vengo de DigitalSAN 👋');
@@ -122,35 +126,46 @@ async function init() {
   document.getElementById('waPerfil').textContent = perfil.whatsapp;
 
   renderRateChip('rateChip');
-  tasaInfo = await obtenerTasaUSDT();
+  obtenerTasaUSDT().then(t => { tasaInfo = t; }).catch(() => {});
 
   await cargarTodo();
 }
 
 async function cargarTodo() {
-  const { data: sanesData } = await supabaseClient
-    .from('sanes').select('*, numeros_san(*, perfiles(nombre_completo))')
-    .eq('creador_id', perfil.id).order('created_at', { ascending: false });
-  sanes = sanesData || [];
-
-  const { data: partData } = await supabaseClient
-    .from('perfiles').select('*').eq('creado_por', perfil.id).eq('rol', 'participante').order('nombre_completo');
-  participantes = partData || [];
+  const [rSanes, rPart] = await Promise.all([
+    supabaseClient.from('sanes').select('*, numeros_san(*, perfiles(nombre_completo))')
+      .eq('creador_id', perfil.id).order('created_at', { ascending: false }),
+    supabaseClient.from('perfiles').select(PERFIL_COLS)
+      .eq('creado_por', perfil.id).eq('rol', 'participante').order('nombre_completo')
+  ]);
+  if (rSanes.error) { console.error(rSanes.error); toast('No se pudieron cargar tus San: ' + rSanes.error.message, 'error'); }
+  if (rPart.error) { console.error(rPart.error); toast('No se pudieron cargar los participantes: ' + rPart.error.message, 'error'); }
+  sanes = rSanes.data || [];
+  participantes = rPart.data || [];
 
   const sanIds = sanes.map(s => s.id);
+  pagosTodos = [];
   if (sanIds.length) {
-    const { data: pagosData } = await supabaseClient
-      .from('pagos').select('*, perfiles(nombre_completo, whatsapp), sanes(nombre)')
+    // "perfiles!participante_id" evita la ambigüedad con validado_por (dos FK a perfiles)
+    const { data, error } = await supabaseClient
+      .from('pagos').select('*, perfiles!participante_id(nombre_completo, whatsapp), sanes(nombre)')
       .in('san_id', sanIds).order('fecha_vencimiento', { ascending: true });
-    pagosTodos = pagosData || [];
-  } else { pagosTodos = []; }
+    if (error) { console.error(error); toast('No se pudieron cargar los pagos: ' + error.message, 'error'); }
+    pagosTodos = data || [];
+  }
 
-  document.getElementById('statTotalSanes').textContent = sanes.filter(s => s.estado !== 'cancelado').length;
+  document.getElementById('statTotalSanes').textContent = sanes.filter(s => s.estado === 'planificacion' || s.estado === 'activo').length;
   document.getElementById('statTotalParticipantes').textContent = participantes.length;
 
   renderSanes();
   renderParticipantes();
   renderPagosCreador(document.querySelector('#filtroPagosCreador .chip.active').dataset.filtro);
+}
+
+async function refrescarYReabrir(sanId) {
+  cerrarTodosOverlays();
+  await cargarTodo();
+  if (sanId && sanes.some(s => s.id === sanId)) abrirDetalleSan(sanId);
 }
 
 /* ================= SANES ================= */
@@ -171,7 +186,7 @@ function renderSanes() {
         <div class="flex gap-8 items-center">
           <div class="avatar">${s.tipo === 'personalizado' ? '🎁' : '💰'}</div>
           <div>
-            <b style="font-size:13.5px;">${s.nombre}</b>
+            <b style="font-size:13.5px;">${esc(s.nombre)}</b>
             <div class="muted" style="font-size:11px;">${ocupados}/${s.num_participantes} cupos · ${ETIQUETAS_FRECUENCIA[s.frecuencia]}</div>
           </div>
         </div>
@@ -196,8 +211,8 @@ function abrirCrearSan() {
       </div>
       <div class="field hidden" id="campoArticulo"><label>Descripción del artículo</label><input type="text" id="sArticulo" placeholder="Ej: Combo de electrodomésticos"></div>
 
-      <div class="field"><label>Monto de la cuota (USD)</label><input type="number" step="0.01" min="0" id="sMontoCuota" placeholder="20.00" required></div>
-      <div class="field"><label>Número de participantes / cupos</label><input type="number" min="2" id="sNumParticipantes" placeholder="10" required></div>
+      <div class="field"><label>Monto de la cuota (USD)</label><input type="number" step="0.01" min="0.01" id="sMontoCuota" placeholder="20.00" required></div>
+      <div class="field"><label>Número de participantes / cupos</label><input type="number" min="2" max="60" step="1" id="sNumParticipantes" placeholder="10" required></div>
       <div class="field"><label>Monto total del San</label><input type="text" id="sMontoTotal" readonly></div>
 
       <div class="field">
@@ -231,10 +246,12 @@ function abrirCrearSan() {
     if ($('sFechaInicio').value && n > 1) {
       const { fechaFin } = calcularCalendarioSan($('sFechaInicio').value, $('sFrecuencia').value, n);
       $('sFechaFin').value = formatearFecha(fechaFin);
+    } else {
+      $('sFechaFin').value = '';
     }
   }
   ['sMontoCuota', 'sNumParticipantes', 'sFechaInicio', 'sFrecuencia'].forEach(id => $(id).addEventListener('input', recalcular));
-  $('sFechaInicio').valueAsDate = new Date();
+  $('sFechaInicio').value = hoyISO();
   recalcular();
 
   $('formCrearSan').addEventListener('submit', crearSan);
@@ -243,44 +260,56 @@ function abrirCrearSan() {
 async function crearSan(e) {
   e.preventDefault();
   const $ = id => document.getElementById(id);
-  const btn = document.getElementById('btnCrearSan');
-  botonCargando(btn, true);
-  document.getElementById('errCrearSan').textContent = '';
+  const btn = $('btnCrearSan');
+  const errEl = $('errCrearSan');
+  errEl.textContent = '';
 
-  const nombre = $('sNombre').value;
+  const nombre = $('sNombre').value.trim();
   const tipo = $('sTipo').value;
-  const articulo = $('sArticulo').value;
+  const articulo = $('sArticulo').value.trim();
   const montoCuota = parseFloat($('sMontoCuota').value);
   const numParticipantes = parseInt($('sNumParticipantes').value);
   const frecuencia = $('sFrecuencia').value;
   const fechaInicio = $('sFechaInicio').value;
   const metodo = $('sMetodo').value;
 
+  if (!nombre) { errEl.textContent = 'Escribe un nombre para el San.'; return; }
+  if (!(montoCuota > 0)) { errEl.textContent = 'La cuota debe ser mayor a 0.'; return; }
+  if (!(numParticipantes >= 2)) { errEl.textContent = 'Debe haber al menos 2 cupos.'; return; }
+  if (!fechaInicio) { errEl.textContent = 'Indica la fecha de inicio.'; return; }
+
+  botonCargando(btn, true);
   const { fechas, fechaFin } = calcularCalendarioSan(fechaInicio, frecuencia, numParticipantes);
+  let sanCreadoId = null;
 
   try {
     const { data: san, error } = await supabaseClient.from('sanes').insert({
       creador_id: perfil.id, nombre, tipo,
-      descripcion_articulo: tipo === 'personalizado' ? articulo : null,
+      descripcion_articulo: tipo === 'personalizado' ? (articulo || null) : null,
       monto_cuota: montoCuota, num_participantes: numParticipantes,
-      monto_total: montoCuota * numParticipantes, frecuencia,
+      monto_total: Math.round(montoCuota * numParticipantes * 100) / 100, frecuencia,
       fecha_inicio: fechaInicio, fecha_fin: fechaISO(fechaFin),
       metodo_asignacion: metodo, estado: 'planificacion'
     }).select().single();
     if (error) throw error;
+    sanCreadoId = san.id;
 
     const numerosRows = fechas.map((f, i) => ({ san_id: san.id, numero: i + 1, fecha_turno: fechaISO(f), estado: 'disponible' }));
     const { error: errNum } = await supabaseClient.from('numeros_san').insert(numerosRows);
     if (errNum) throw errNum;
 
-    const cobrosRows = fechas.map((f, i) => ({ san_id: san.id, numero_turno: i + 1, fecha_cobro: fechaISO(f), monto_total_usd: montoCuota * numParticipantes }));
-    await supabaseClient.from('cobros').insert(cobrosRows);
+    const cobrosRows = fechas.map((f, i) => ({ san_id: san.id, numero_turno: i + 1, fecha_cobro: fechaISO(f), monto_total_usd: Math.round(montoCuota * numParticipantes * 100) / 100 }));
+    const { error: errCob } = await supabaseClient.from('cobros').insert(cobrosRows);
+    if (errCob) throw errCob;
 
-    document.querySelectorAll('.overlay').forEach(o => o.remove());
+    cerrarTodosOverlays();
     toast('San creado con éxito ✅', 'success');
     await cargarTodo();
   } catch (err) {
-    document.getElementById('errCrearSan').textContent = 'No se pudo crear el San. Verifica los datos.';
+    console.error(err);
+    // Si algo falló a medias, se borra el San incompleto (los números se borran en cascada)
+    if (sanCreadoId) { try { await supabaseClient.from('sanes').delete().eq('id', sanCreadoId); } catch (e2) {} }
+    errEl.textContent = 'No se pudo crear el San: ' + (err.message || 'verifica los datos.');
   } finally {
     botonCargando(btn, false, 'Crear San');
   }
@@ -288,85 +317,97 @@ async function crearSan(e) {
 
 function abrirDetalleSan(sanId) {
   const s = sanes.find(x => x.id === sanId);
-  const numeros = (s.numeros_san || []).sort((a, b) => a.numero - b.numero);
+  if (!s) return;
+  const numeros = [...(s.numeros_san || [])].sort((a, b) => a.numero - b.numero);
   const est = ETIQUETAS_ESTADO_SAN[s.estado];
 
-  const overlay = abrirSheet(`
-    <div class="sheet-header"><h3>${s.nombre}</h3><button class="btn btn-icon btn-ghost" onclick="cerrarOverlay(this)">✕</button></div>
+  abrirSheet(`
+    <div class="sheet-header"><h3>${esc(s.nombre)}</h3><button class="btn btn-icon btn-ghost" onclick="cerrarOverlay(this)">✕</button></div>
     <div class="chips mb-8">
       <span class="badge ${est.clase}">${est.texto}</span>
       <span class="badge badge-muted">${ETIQUETAS_FRECUENCIA[s.frecuencia]}</span>
-      <span class="badge badge-muted">${s.metodo_asignacion}</span>
+      <span class="badge badge-muted">${ETIQUETAS_METODO[s.metodo_asignacion] || esc(s.metodo_asignacion)}</span>
     </div>
     <div class="stat-grid">
       <div class="glass tight stat-card"><div class="v">${formatoUSD(s.monto_cuota)}</div><div class="l">Cuota</div></div>
       <div class="glass tight stat-card"><div class="v">${formatoUSD(s.monto_total)}</div><div class="l">Total del San</div></div>
     </div>
     <div class="glass-row mt-8"><span class="muted" style="font-size:12px;">Inicio → Fin</span><b style="font-size:12px;">${formatearFecha(s.fecha_inicio)} → ${formatearFecha(s.fecha_fin)}</b></div>
+    ${s.tipo === 'personalizado' && s.descripcion_articulo ? `<div class="glass-row mt-4"><span class="muted" style="font-size:12px;">Artículo</span><b style="font-size:12px;">${esc(s.descripcion_articulo)}</b></div>` : ''}
 
     <div class="card-title mt-12">Números y turnos</div>
-    <div class="num-grid" id="gridNumeros${s.id}">
-      ${numeros.map(n => `
-        <div class="num-cell ${n.estado === 'ocupado' ? 'mine' : 'selectable'}" title="${n.perfiles ? n.perfiles.nombre_completo : 'Disponible'}"
-          onclick="tocarNumero('${s.id}','${n.id}',${n.numero},'${n.estado}',${n.participante_id ? `'${n.participante_id}'` : 'null'})">${n.numero}</div>
-      `).join('')}
+    <div class="num-grid">
+      ${numeros.map(n => `<div class="num-cell ${n.estado === 'ocupado' ? 'mine' : 'selectable'}" onclick="tocarNumero('${s.id}','${n.id}')">${n.numero}</div>`).join('')}
     </div>
     <p class="hint mt-8">Toca un número para asignarlo manualmente o liberarlo.</p>
 
-    ${s.metodo_asignacion === 'sorteo' ? `<button class="btn btn-gold btn-block mt-12" onclick="abrirSorteo('${s.id}')">🎲 Ejecutar sorteo</button>` : ''}
+    <div class="list mt-8">
+      ${numeros.map(n => `
+        <div class="glass-row" style="font-size:12px; padding:3px 2px;">
+          <span><b class="mono">#${n.numero}</b> · ${n.perfiles ? esc(n.perfiles.nombre_completo) : '<span class="muted">Disponible</span>'}</span>
+          <span class="muted">${formatearFecha(n.fecha_turno)}</span>
+        </div>`).join('')}
+    </div>
+
+    ${s.metodo_asignacion === 'sorteo' && s.estado !== 'cancelado' ? `<button class="btn btn-gold btn-block mt-12" onclick="abrirSorteo('${s.id}')">🎲 Ejecutar sorteo</button>` : ''}
 
     <div class="flex gap-8 mt-12">
       ${s.estado === 'planificacion' ? `<button class="btn btn-ghost grow" onclick="cambiarEstadoSan('${s.id}','activo')">Activar San</button>` : ''}
       ${s.estado === 'activo' ? `<button class="btn btn-ghost grow" onclick="cambiarEstadoSan('${s.id}','finalizado')">Marcar finalizado</button>` : ''}
-      <button class="btn btn-danger" onclick="cambiarEstadoSan('${s.id}','cancelado')">Cancelar</button>
+      ${s.estado !== 'cancelado' && s.estado !== 'finalizado' ? `<button class="btn btn-danger" onclick="cambiarEstadoSan('${s.id}','cancelado')">Cancelar</button>` : ''}
     </div>
   `);
 }
 
 async function cambiarEstadoSan(sanId, estado) {
-  await supabaseClient.from('sanes').update({ estado }).eq('id', sanId);
-  document.querySelectorAll('.overlay').forEach(o => o.remove());
+  if (estado === 'cancelado' && !confirm('¿Cancelar este San? Esta acción no se puede deshacer fácilmente.')) return;
+  if (estado === 'finalizado' && !confirm('¿Marcar este San como finalizado?')) return;
+  const { error } = await supabaseClient.from('sanes').update({ estado }).eq('id', sanId);
+  if (error) { toast('No se pudo actualizar: ' + error.message, 'error'); return; }
   toast('Estado actualizado', 'success');
-  await cargarTodo();
+  await refrescarYReabrir(sanId);
 }
 
-function tocarNumero(sanId, numeroRowId, numero, estadoActual, participanteId) {
-  if (estadoActual === 'ocupado') {
-    if (confirm(`¿Liberar el número ${numero}?`)) liberarNumero(numeroRowId);
+function tocarNumero(sanId, numeroId) {
+  const s = sanes.find(x => x.id === sanId);
+  const n = (s?.numeros_san || []).find(x => x.id === numeroId);
+  if (!s || !n) return;
+
+  if (n.estado === 'ocupado') {
+    if (confirm(`¿Liberar el número ${n.numero}?`)) liberarNumero(sanId, numeroId);
     return;
   }
-  const disponibles = participantes.filter(p => !sanes.find(s => s.id === sanId).numeros_san.some(n => n.participante_id === p.id));
-  if (!disponibles.length) { toast('No tienes participantes disponibles para asignar', 'error'); return; }
+  const disponibles = participantes.filter(p => p.activo && !s.numeros_san.some(x => x.participante_id === p.id));
+  if (!disponibles.length) { toast('No tienes participantes sin número en este San', 'error'); return; }
   abrirSheet(`
-    <div class="sheet-header"><h3>Asignar número ${numero}</h3><button class="btn btn-icon btn-ghost" onclick="cerrarOverlay(this)">✕</button></div>
+    <div class="sheet-header"><h3>Asignar número ${n.numero}</h3><button class="btn btn-icon btn-ghost" onclick="cerrarOverlay(this)">✕</button></div>
     <div class="list">
       ${disponibles.map(p => `
-        <div class="item-row" style="cursor:pointer;" onclick="asignarNumeroManual('${numeroRowId}','${p.id}')">
-          <div class="avatar">${iniciales(p.nombre_completo)}</div>
-          <div class="meta"><b>${p.nombre_completo}</b><small>${p.rif}</small></div>
+        <div class="item-row" style="cursor:pointer;" onclick="asignarNumeroManual('${sanId}','${numeroId}','${p.id}')">
+          <div class="avatar">${esc(iniciales(p.nombre_completo))}</div>
+          <div class="meta"><b>${esc(p.nombre_completo)}</b><small>${esc(p.rif)}</small></div>
         </div>`).join('')}
     </div>
   `);
 }
 
-async function asignarNumeroManual(numeroRowId, participanteId) {
-  const { error } = await supabaseClient.from('numeros_san').update({ participante_id: participanteId, estado: 'ocupado' }).eq('id', numeroRowId);
-  document.querySelectorAll('.overlay').forEach(o => o.remove());
-  if (error) { toast('No se pudo asignar', 'error'); return; }
+async function asignarNumeroManual(sanId, numeroId, participanteId) {
+  const { error } = await supabaseClient.from('numeros_san').update({ participante_id: participanteId, estado: 'ocupado' }).eq('id', numeroId);
+  if (error) { cerrarTodosOverlays(); toast('No se pudo asignar: ' + error.message, 'error'); return; }
   toast('Número asignado', 'success');
-  await cargarTodo();
+  await refrescarYReabrir(sanId);
 }
 
-async function liberarNumero(numeroRowId) {
-  await supabaseClient.from('numeros_san').update({ participante_id: null, estado: 'disponible' }).eq('id', numeroRowId);
-  document.querySelectorAll('.overlay').forEach(o => o.remove());
+async function liberarNumero(sanId, numeroId) {
+  const { error } = await supabaseClient.from('numeros_san').update({ participante_id: null, estado: 'disponible' }).eq('id', numeroId);
+  if (error) { toast('No se pudo liberar: ' + error.message, 'error'); return; }
   toast('Número liberado', 'success');
-  await cargarTodo();
+  await refrescarYReabrir(sanId);
 }
 
 function abrirSorteo(sanId) {
   const s = sanes.find(x => x.id === sanId);
-  const inscritos = participantes.filter(p => !s.numeros_san.some(n => n.participante_id === p.id));
+  const inscritos = participantes.filter(p => p.activo && !s.numeros_san.some(n => n.participante_id === p.id));
   if (!inscritos.length) { toast('No hay participantes sin número para sortear', 'error'); return; }
   abrirSheet(`
     <div class="sheet-header"><h3>Ejecutar sorteo</h3><button class="btn btn-icon btn-ghost" onclick="cerrarOverlay(this)">✕</button></div>
@@ -375,12 +416,22 @@ function abrirSorteo(sanId) {
       ${inscritos.map(p => `
         <label class="item-row" style="cursor:pointer;">
           <input type="checkbox" value="${p.id}" class="chkSorteo" style="width:18px;height:18px;margin-right:2px;">
-          <div class="avatar">${iniciales(p.nombre_completo)}</div>
-          <div class="meta"><b>${p.nombre_completo}</b><small>${p.rif}</small></div>
+          <div class="avatar">${esc(iniciales(p.nombre_completo))}</div>
+          <div class="meta"><b>${esc(p.nombre_completo)}</b><small>${esc(p.rif)}</small></div>
         </label>`).join('')}
     </div>
-    <button class="btn btn-gold btn-block mt-12" onclick="ejecutarSorteo('${sanId}')">🎲 Sortear números</button>
+    <button class="btn btn-gold btn-block mt-12" id="btnSortear" onclick="ejecutarSorteo('${sanId}')">🎲 Sortear números</button>
   `);
+}
+
+// Mezcla Fisher–Yates (el sort aleatorio clásico no es uniforme)
+function barajar(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
 }
 
 async function ejecutarSorteo(sanId) {
@@ -390,19 +441,27 @@ async function ejecutarSorteo(sanId) {
   const disponibles = s.numeros_san.filter(n => n.estado === 'disponible').map(n => n.id);
   if (ids.length > disponibles.length) { toast('Hay más participantes que números disponibles', 'error'); return; }
 
-  const numerosBarajados = [...disponibles].sort(() => Math.random() - 0.5);
-  const asignaciones = ids.map((pid, i) => ({ numeroRowId: numerosBarajados[i], participanteId: pid }));
+  const btn = document.getElementById('btnSortear');
+  botonCargando(btn, true);
+  try {
+    const numerosBarajados = barajar(disponibles);
+    const asignaciones = ids.map((pid, i) => ({ numeroRowId: numerosBarajados[i], participanteId: pid }));
 
-  for (const a of asignaciones) {
-    await supabaseClient.from('numeros_san').update({ participante_id: a.participanteId, estado: 'ocupado' }).eq('id', a.numeroRowId);
+    for (const a of asignaciones) {
+      const { error } = await supabaseClient.from('numeros_san').update({ participante_id: a.participanteId, estado: 'ocupado' }).eq('id', a.numeroRowId);
+      if (error) throw error;
+    }
+    const { data: numerosActualizados } = await supabaseClient.from('numeros_san').select('numero, participante_id').in('id', asignaciones.map(a => a.numeroRowId));
+    const logRows = (numerosActualizados || []).map(n => ({ san_id: sanId, numero_ganador: n.numero, participante_id: n.participante_id, realizado: true }));
+    if (logRows.length) await supabaseClient.from('sorteos').insert(logRows);
+
+    toast('Sorteo ejecutado 🎉', 'success');
+  } catch (err) {
+    console.error(err);
+    toast('El sorteo se interrumpió: ' + (err.message || err), 'error');
+  } finally {
+    await refrescarYReabrir(sanId);
   }
-  const { data: numerosActualizados } = await supabaseClient.from('numeros_san').select('numero, participante_id').in('id', asignaciones.map(a => a.numeroRowId));
-  const logRows = numerosActualizados.map(n => ({ san_id: sanId, numero_ganador: n.numero, participante_id: n.participante_id, realizado: true }));
-  await supabaseClient.from('sorteos').insert(logRows);
-
-  document.querySelectorAll('.overlay').forEach(o => o.remove());
-  toast('Sorteo ejecutado 🎉', 'success');
-  await cargarTodo();
 }
 
 /* ================= PARTICIPANTES ================= */
@@ -417,11 +476,11 @@ function renderParticipantes() {
   }
   list.innerHTML = datos.map(p => `
     <div class="item-row">
-      <div class="avatar">${iniciales(p.nombre_completo)}</div>
-      <div class="meta"><b>${p.nombre_completo}</b><small>${p.rif} · ${p.whatsapp}</small></div>
+      <div class="avatar">${esc(iniciales(p.nombre_completo))}</div>
+      <div class="meta"><b>${esc(p.nombre_completo)}</b><small>${esc(p.rif)} · ${esc(p.whatsapp)}</small></div>
       <div class="actions">
         <button class="btn btn-icon btn-ghost" title="Recordar pago" onclick="recordarProximoPago('${p.id}')">🔔</button>
-        <button class="btn btn-icon btn-ghost" title="Restablecer clave" onclick="restablecerClave('${p.id}','${p.nombre_completo.replace(/'/g, "")}','${p.whatsapp}')">🔑</button>
+        <button class="btn btn-icon btn-ghost" title="Restablecer clave" onclick="restablecerClave('${p.id}')">🔑</button>
       </div>
     </div>`).join('');
 }
@@ -432,8 +491,8 @@ function abrirCrearParticipante() {
     <div class="sheet-header"><h3>Nuevo participante</h3><button class="btn btn-icon btn-ghost" onclick="cerrarOverlay(this)">✕</button></div>
     <form id="formCrearParticipante">
       <div class="field"><label>Nombre completo</label><input type="text" id="pNombre" required></div>
-      <div class="field"><label>Cédula / RIF</label><input type="text" id="pRif" placeholder="V-12345678" required></div>
-      <div class="field"><label>WhatsApp</label><input type="text" id="pWhatsapp" placeholder="0412-1234567" required></div>
+      <div class="field"><label>Cédula / RIF</label><input type="text" id="pRif" placeholder="V-12345678" autocapitalize="characters" required></div>
+      <div class="field"><label>WhatsApp</label><input type="tel" id="pWhatsapp" placeholder="0412-1234567" required></div>
       <div class="field"><label>Dirección</label><textarea id="pDireccion" placeholder="Opcional"></textarea></div>
       <div class="error-text" id="errCrearParticipante"></div>
       <button type="submit" class="btn btn-primary btn-block" id="btnCrearParticipante">Crear participante</button>
@@ -442,57 +501,79 @@ function abrirCrearParticipante() {
   document.getElementById('formCrearParticipante').addEventListener('submit', crearParticipante);
 }
 
+function urlApp() { return new URL('index.html', window.location.href).href; }
+
 async function crearParticipante(e) {
   e.preventDefault();
   const $ = id => document.getElementById(id);
-  const btn = document.getElementById('btnCrearParticipante');
-  botonCargando(btn, true);
-  document.getElementById('errCrearParticipante').textContent = '';
+  const btn = $('btnCrearParticipante');
+  const errEl = $('errCrearParticipante');
+  errEl.textContent = '';
 
-  const nombre = $('pNombre').value;
+  const nombre = $('pNombre').value.trim();
   const rif = normalizarRIF($('pRif').value);
-  const whatsapp = $('pWhatsapp').value;
-  const direccion = $('pDireccion').value;
-  const passwordTemporal = generarPasswordTemporal(rif);
+  const whatsapp = $('pWhatsapp').value.trim();
+  const direccion = $('pDireccion').value.trim();
 
-  const { data, error } = await supabaseClient.rpc('crear_participante', {
-    p_creador_id: perfil.id, p_nombre: nombre, p_rif: rif, p_whatsapp: whatsapp,
-    p_direccion: direccion, p_password: passwordTemporal
-  });
+  if (!validarRIF(rif)) { errEl.textContent = 'La cédula/RIF no es válida (ej: V-12345678).'; return; }
+  if (normalizarWhatsapp(whatsapp).length < 11) { errEl.textContent = 'El WhatsApp no parece válido.'; return; }
 
-  botonCargando(btn, false, 'Crear participante');
-  if (error || !data.ok) { document.getElementById('errCrearParticipante').textContent = data?.error || 'No se pudo crear'; return; }
+  botonCargando(btn, true);
+  const passwordTemporal = generarPasswordTemporal();
+  try {
+    const { data, error } = await conTimeout(supabaseClient.rpc('crear_participante', {
+      p_creador_id: perfil.id, p_nombre: nombre, p_rif: rif, p_whatsapp: whatsapp,
+      p_direccion: direccion, p_password: passwordTemporal
+    }), 20000, 'timeout');
 
-  document.querySelectorAll('.overlay').forEach(o => o.remove());
-  toast('Participante creado ✅', 'success');
-  await cargarTodo();
+    if (error) {
+      console.error(error);
+      errEl.textContent = /Could not find|does not exist/i.test(error.message || '')
+        ? 'La base de datos no está actualizada. Ejecuta database/schema.sql en Supabase.'
+        : 'No se pudo crear: ' + error.message;
+      return;
+    }
+    if (!data || !data.ok) { errEl.textContent = (data && data.error) || 'No se pudo crear'; return; }
 
-  const mensaje = `Hola ${nombre} 👋, ya tienes acceso a *DigitalSAN*.\n\nTu cédula/RIF: ${rif}\nContraseña temporal: ${passwordTemporal}\n\nIngresa en el enlace que te compartió tu organizador y elige tu número cuando esté disponible. ¡Gracias por participar!`;
-  abrirSheet(`
-    <div class="sheet-header"><h3>Compartir credenciales</h3></div>
-    <p class="muted" style="font-size:12.5px;">Envía sus datos de acceso por WhatsApp ahora, luego no podrás verlos de nuevo.</p>
-    <div class="glass tight mt-8 mono" style="font-size:12px;">RIF: ${rif}<br>Clave: ${passwordTemporal}</div>
-    <button class="btn btn-primary btn-block mt-12" onclick="window.open('${linkWhatsapp(whatsapp, mensaje)}','_blank')">Enviar por WhatsApp</button>
-  `, { centered: true });
+    cerrarTodosOverlays();
+    toast('Participante creado ✅', 'success');
+    await cargarTodo();
+
+    const mensaje = `Hola ${nombre} 👋, ya tienes acceso a *DigitalSAN*.\n\nTu cédula/RIF: ${rif}\nContraseña temporal: ${passwordTemporal}\n\nIngresa aquí: ${urlApp()}\n\nElige tu número cuando esté disponible. ¡Gracias por participar!`;
+    abrirSheet(`
+      <div class="sheet-header"><h3>Compartir credenciales</h3></div>
+      <p class="muted" style="font-size:12.5px;">Envía sus datos de acceso por WhatsApp ahora, luego no podrás verlos de nuevo.</p>
+      <div class="glass tight mt-8 mono" style="font-size:12px;">RIF: ${esc(rif)}<br>Clave: ${esc(passwordTemporal)}</div>
+      <button class="btn btn-primary btn-block mt-12" data-href="${esc(linkWhatsapp(whatsapp, mensaje))}" onclick="window.open(this.dataset.href,'_blank')">Enviar por WhatsApp</button>
+    `, { centered: true });
+  } catch (err) {
+    errEl.textContent = err.message === 'timeout' ? 'El servidor tardó demasiado. Intenta de nuevo.' : 'Error: ' + (err.message || err);
+  } finally {
+    botonCargando(btn, false, 'Crear participante');
+  }
 }
 
-async function restablecerClave(participanteId, nombre, whatsapp) {
-  if (!confirm(`¿Generar una nueva contraseña temporal para ${nombre}?`)) return;
-  const passwordTemporal = generarPasswordTemporal(Date.now().toString());
-  const { data } = await supabaseClient.rpc('resetear_password_participante', { p_participante_id: participanteId, p_password: passwordTemporal });
-  if (!data?.ok) { toast('No se pudo restablecer', 'error'); return; }
-  const mensaje = `Hola ${nombre} 👋, tu nueva contraseña temporal de DigitalSAN es: ${passwordTemporal}`;
+async function restablecerClave(participanteId) {
+  const p = participantes.find(x => x.id === participanteId);
+  if (!p) return;
+  if (!confirm(`¿Generar una nueva contraseña temporal para ${p.nombre_completo}?`)) return;
+  const passwordTemporal = generarPasswordTemporal();
+  const { data, error } = await supabaseClient.rpc('resetear_password_participante', { p_participante_id: participanteId, p_password: passwordTemporal });
+  if (error || !data || !data.ok) { toast((data && data.error) || 'No se pudo restablecer', 'error'); return; }
+  const mensaje = `Hola ${p.nombre_completo} 👋, tu nueva contraseña temporal de DigitalSAN es: ${passwordTemporal}\n\nIngresa aquí: ${urlApp()}`;
   toast('Nueva contraseña generada', 'success');
   abrirSheet(`
     <div class="sheet-header"><h3>Nueva contraseña</h3></div>
-    <div class="glass tight mono" style="font-size:12px;">Clave: ${passwordTemporal}</div>
-    <button class="btn btn-primary btn-block mt-12" onclick="window.open('${linkWhatsapp(whatsapp, mensaje)}','_blank')">Enviar por WhatsApp</button>
+    <div class="glass tight mono" style="font-size:12px;">Clave: ${esc(passwordTemporal)}</div>
+    <button class="btn btn-primary btn-block mt-12" data-href="${esc(linkWhatsapp(p.whatsapp, mensaje))}" onclick="window.open(this.dataset.href,'_blank')">Enviar por WhatsApp</button>
   `, { centered: true });
 }
 
 function recordarProximoPago(participanteId) {
   const p = participantes.find(x => x.id === participanteId);
-  const pendiente = pagosTodos.filter(x => x.participante_id === participanteId && (x.estado === 'pendiente' || x.estado === 'atrasado'))
+  if (!p) return;
+  const pendiente = pagosTodos
+    .filter(x => x.participante_id === participanteId && (x.estado === 'pendiente' || x.estado === 'atrasado'))
     .sort((a, b) => new Date(a.fecha_vencimiento) - new Date(b.fecha_vencimiento))[0];
   if (!pendiente) { toast('Este participante está al día ✅', 'success'); return; }
   const mensaje = `Hola ${p.nombre_completo} 👋, te recordamos tu cuota #${pendiente.numero_cuota} de *${pendiente.sanes?.nombre || 'tu San'}* por ${formatoUSD(pendiente.monto_usd)}, con vencimiento el ${formatearFecha(pendiente.fecha_vencimiento)}. ¡Gracias por tu puntualidad! 🙏`;
@@ -503,27 +584,27 @@ function recordarProximoPago(participanteId) {
 
 function renderPagosCreador(filtro) {
   const list = document.getElementById('listaPagosCreador');
-  let datos = filtro === 'todos' ? pagosTodos : pagosTodos.filter(p => {
-    if (filtro === 'atrasado') return p.estado === 'pendiente' && diasHastaVencer(p.fecha_vencimiento) < 0;
-    return p.estado === filtro;
-  });
+  const datos = filtro === 'todos' ? pagosTodos : pagosTodos.filter(p => estadoPagoEfectivo(p) === filtro);
   if (!datos.length) { list.innerHTML = `<div class="empty"><div class="ico">✅</div><b>Nada por aquí</b><p>No hay pagos en este filtro.</p></div>`; return; }
 
   list.innerHTML = datos.map(p => {
-    const atrasado = p.estado === 'pendiente' && diasHastaVencer(p.fecha_vencimiento) < 0;
-    const est = ETIQUETAS_ESTADO_PAGO[atrasado ? 'atrasado' : p.estado];
+    const estEf = estadoPagoEfectivo(p);
+    const est = ETIQUETAS_ESTADO_PAGO[estEf];
+    const urlComp = urlComprobante(p.comprobante_url);
     return `
     <div class="item-row" style="align-items:flex-start;">
-      <div class="avatar">${iniciales(p.perfiles?.nombre_completo || '?')}</div>
+      <div class="avatar">${esc(iniciales(p.perfiles?.nombre_completo || '?'))}</div>
       <div class="meta">
-        <b>${p.perfiles?.nombre_completo || 'Participante'}</b>
-        <small>${p.sanes?.nombre || ''} · Cuota ${p.numero_cuota} · ${formatoUSD(p.monto_usd)}</small>
+        <b>${esc(p.perfiles?.nombre_completo || 'Participante')}</b>
+        <small>${esc(p.sanes?.nombre || '')} · Cuota ${p.numero_cuota} · ${formatoUSD(p.monto_usd)}</small>
+        <small style="display:block;">Vence ${formatearFecha(p.fecha_vencimiento)}${p.referencia ? ' · Ref: ' + esc(p.referencia) : ''}${p.monto_ves ? ' · ' + formatoVES(p.monto_ves) : ''}</small>
         <div class="mt-4"><span class="badge ${est.clase}">${est.texto}</span></div>
       </div>
       <div class="actions flex-col gap-6">
-        ${p.comprobante_url ? `<a href="${p.comprobante_url}" target="_blank" class="btn btn-ghost btn-sm">Ver</a>` : ''}
-        ${p.estado === 'reportado' ? `<button class="btn btn-primary btn-sm" onclick="validarPago('${p.id}')">Validar</button>` : ''}
-        ${p.estado !== 'validado' ? `<button class="btn btn-icon btn-ghost" onclick="recordarProximoPago('${p.participante_id}')">🔔</button>` : ''}
+        ${urlComp ? `<a href="${esc(urlComp)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">Ver</a>` : ''}
+        ${p.estado === 'reportado' ? `<button class="btn btn-primary btn-sm" onclick="validarPago('${p.id}')">Validar</button>
+                                      <button class="btn btn-ghost btn-sm" onclick="rechazarPago('${p.id}')">Rechazar</button>` : ''}
+        ${p.estado !== 'validado' && p.estado !== 'reportado' ? `<button class="btn btn-icon btn-ghost" onclick="recordarProximoPago('${p.participante_id}')">🔔</button>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -539,8 +620,19 @@ document.querySelectorAll('#filtroPagosCreador .chip').forEach(chip => {
 
 async function validarPago(pagoId) {
   const { error } = await supabaseClient.from('pagos').update({ estado: 'validado', validado_por: perfil.id }).eq('id', pagoId);
-  if (error) { toast('No se pudo validar', 'error'); return; }
+  if (error) { toast('No se pudo validar: ' + error.message, 'error'); return; }
   toast('Pago validado ✅', 'success');
+  await cargarTodo();
+}
+
+// Devuelve el pago a "pendiente" para que el participante lo reporte de nuevo
+async function rechazarPago(pagoId) {
+  if (!confirm('¿Rechazar este reporte? El participante deberá enviarlo de nuevo.')) return;
+  const { error } = await supabaseClient.from('pagos').update({
+    estado: 'pendiente', referencia: null, comprobante_url: null, fecha_pago: null, monto_ves: null, tasa_aplicada: null, validado_por: null
+  }).eq('id', pagoId);
+  if (error) { toast('No se pudo rechazar: ' + error.message, 'error'); return; }
+  toast('Reporte rechazado', 'success');
   await cargarTodo();
 }
 

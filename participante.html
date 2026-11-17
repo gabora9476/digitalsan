@@ -5,11 +5,20 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <title>DigitalSAN · Mi panel</title>
 <meta name="theme-color" content="#070c16">
+<link rel="icon" type="image/svg+xml" href="./assets/img/favicon.svg?v=2">
+<link rel="icon" type="image/png" sizes="32x32" href="./assets/img/favicon-32.png?v=2">
+<link rel="shortcut icon" href="./assets/img/favicon.ico?v=2">
+<link rel="apple-touch-icon" href="./assets/img/apple-touch-icon.png?v=2">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="./assets/css/styles.css">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="stylesheet" href="./assets/css/styles.css?v=2">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49"></script>
 </head>
 <body>
+<!-- Gradiente compartido por todas las ruedas de progreso -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <linearGradient id="wheelGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#14b8a6"/><stop offset="100%" stop-color="#7c6df6"/></linearGradient>
+</defs></svg>
+
 <div class="app-shell">
 
   <div class="app-topbar">
@@ -29,10 +38,7 @@
 
     <!-- ============ INICIO ============ -->
     <section id="viewInicio">
-      <div class="glass" id="wheelCard">
-        <div class="card-title">Mi San</div>
-        <div id="wheelContent"></div>
-      </div>
+      <div id="wheelContent"></div>
 
       <div class="stat-grid mt-12">
         <div class="glass stat-card">
@@ -46,7 +52,7 @@
       </div>
 
       <div class="glass mt-12" id="cardOtrosSanes" style="display:none;">
-        <div class="card-title">Otros San disponibles</div>
+        <div class="card-title">San disponibles para elegir número</div>
         <div class="list" id="listaOtrosSanes"></div>
       </div>
     </section>
@@ -85,8 +91,8 @@
       <div class="glass mt-12">
         <div class="card-title">Cambiar contraseña</div>
         <form id="formPassword">
-          <div class="field"><label>Contraseña actual</label><input type="password" id="passActual" required></div>
-          <div class="field"><label>Nueva contraseña</label><input type="password" id="passNueva" required minlength="4"></div>
+          <div class="field"><label>Contraseña actual</label><input type="password" id="passActual" autocomplete="current-password" required></div>
+          <div class="field"><label>Nueva contraseña (mín. 6)</label><input type="password" id="passNueva" autocomplete="new-password" required minlength="6"></div>
           <div class="error-text" id="errPass"></div>
           <button type="submit" class="btn btn-ghost btn-block">Actualizar contraseña</button>
         </form>
@@ -119,10 +125,10 @@
   </div>
 </div>
 
-<script src="./assets/js/config.js"></script>
-<script src="./assets/js/utils.js"></script>
-<script src="./assets/js/auth.js"></script>
-<script src="./assets/js/rate-service.js"></script>
+<script src="./assets/js/config.js?v=2"></script>
+<script src="./assets/js/utils.js?v=2"></script>
+<script src="./assets/js/auth.js?v=2"></script>
+<script src="./assets/js/rate-service.js?v=2"></script>
 <script>
 document.getElementById('anio').textContent = new Date().getFullYear();
 document.getElementById('linkAutor').href = linkWhatsapp(APP_INFO.soporteWhatsapp, 'Hola, vengo de DigitalSAN 👋');
@@ -132,110 +138,107 @@ let misNumeros = [];
 let sanesAbiertos = [];
 let pagos = [];
 let tasaInfo = null;
+let filtroPagosActual = 'todos';
+
+function pintarPerfil() {
+  document.getElementById('saludo').textContent = `Hola, ${(perfil.nombre_completo || '').split(' ')[0]} 👋`;
+  document.getElementById('avatarPerfil').textContent = iniciales(perfil.nombre_completo);
+  document.getElementById('nombrePerfil').textContent = perfil.nombre_completo;
+  document.getElementById('rifPerfil').textContent = perfil.rif || '';
+  document.getElementById('dWhatsapp').textContent = perfil.whatsapp || '—';
+  document.getElementById('dDireccion').textContent = perfil.direccion || '—';
+}
 
 async function init() {
   if (!perfil) return;
-  document.getElementById('saludo').textContent = `Hola, ${perfil.nombre_completo.split(' ')[0]} 👋`;
-  document.getElementById('avatarPerfil').textContent = iniciales(perfil.nombre_completo);
-  document.getElementById('nombrePerfil').textContent = perfil.nombre_completo;
-  document.getElementById('rifPerfil').textContent = perfil.rif;
-  document.getElementById('dWhatsapp').textContent = perfil.whatsapp;
-  document.getElementById('dDireccion').textContent = perfil.direccion || '—';
-
+  pintarPerfil();
   renderRateChip('rateChip');
-  tasaInfo = await obtenerTasaUSDT();
+  obtenerTasaUSDT().then(t => { tasaInfo = t; renderInicio(); }).catch(() => {});
 
-  await cargarDatos();
-  await verificarPrimerLogin();
+  const ok = await cargarDatos();
+  if (ok) await verificarPrimerLogin();
 }
 
 async function cargarDatos() {
-  const { data: numerosData } = await supabaseClient
-    .from('numeros_san').select('*, sanes(*)').eq('participante_id', perfil.id);
-  misNumeros = numerosData || [];
-
-  if (perfil.creado_por) {
-    const { data: sanesData } = await supabaseClient
-      .from('sanes').select('*, numeros_san(*)')
-      .eq('creador_id', perfil.creado_por)
-      .eq('metodo_asignacion', 'libre')
-      .in('estado', ['planificacion', 'activo']);
-    sanesAbiertos = (sanesData || []).filter(s => {
-      const yaTieneNumero = misNumeros.some(n => n.san_id === s.id);
-      const hayDisponibles = (s.numeros_san || []).some(n => n.estado === 'disponible');
-      return !yaTieneNumero && hayDisponibles;
-    });
+  const res = await rpcParticipante('part_cargar_datos');
+  if (!res || !res.ok) {
+    if (res && res.error === 'sesion_invalida') return false;
+    const msg = (res && res.error) || 'No se pudieron cargar tus datos';
+    document.getElementById('wheelContent').innerHTML = `<div class="glass"><div class="empty"><div class="ico">⚠️</div><b>No se pudieron cargar tus datos</b><p>${esc(msg)}</p><button class="btn btn-ghost btn-sm mt-8" onclick="location.reload()">Reintentar</button></div></div>`;
+    return false;
   }
+  perfil = { ...perfil, ...res.perfil };
+  guardarSesionParticipante(perfil);
+  pintarPerfil();
 
-  const sanIds = misNumeros.map(n => n.san_id);
-  if (sanIds.length) {
-    const { data: pagosData } = await supabaseClient
-      .from('pagos').select('*, sanes(nombre, moneda_base)')
-      .eq('participante_id', perfil.id).in('san_id', sanIds)
-      .order('fecha_vencimiento', { ascending: true });
-    pagos = pagosData || [];
-  } else { pagos = []; }
+  misNumeros = res.numeros || [];
+  sanesAbiertos = res.abiertos || [];
+  pagos = res.pagos || [];
 
   renderInicio();
-  renderPagos('todos');
+  renderPagos(filtroPagosActual);
   renderOtrosSanes();
+  return true;
 }
 
 function renderInicio() {
   const wrap = document.getElementById('wheelContent');
   if (!misNumeros.length) {
-    wrap.innerHTML = `<div class="empty"><div class="ico">🎯</div><b>Aún no tienes un número asignado</b><p>Cuando tu creador abra la selección lo verás aquí.</p></div>`;
+    wrap.innerHTML = `<div class="glass"><div class="card-title">Mi San</div><div class="empty"><div class="ico">🎯</div><b>Aún no tienes un número asignado</b><p>Cuando tu creador abra la selección lo verás aquí.</p></div></div>`;
     document.getElementById('statProximoPago').textContent = '—';
     document.getElementById('statProximoCobro').textContent = '—';
     return;
   }
-  const n = misNumeros[0];
-  const san = n.sanes;
-  const total = san.num_participantes;
-  const turno = n.numero;
-  const pct = Math.round((turno / total) * 100);
-  const circ = 2 * Math.PI * 46;
-  const offset = circ - (pct / 100) * circ;
 
-  wrap.innerHTML = `
-    <div class="wheel-wrap">
-      <div class="wheel">
-        <svg viewBox="0 0 110 110">
-          <defs><linearGradient id="wheelGrad" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stop-color="#14b8a6"/><stop offset="100%" stop-color="#7c6df6"/>
-          </linearGradient></defs>
-          <circle class="track" cx="55" cy="55" r="46"/>
-          <circle class="progress" cx="55" cy="55" r="46" stroke-dasharray="${circ}" stroke-dashoffset="${offset}"/>
-        </svg>
-        <div class="center"><b>#${turno}</b><span>de ${total}</span></div>
-      </div>
-      <div class="grow">
-        <b style="font-size:14px;">${san.nombre}</b>
-        <p class="muted mt-4" style="font-size:11.5px;">
-          ${san.tipo === 'personalizado' ? (san.descripcion_articulo || 'San personalizado') : 'San monetario'}
-          · ${ETIQUETAS_FRECUENCIA[san.frecuencia]}
-        </p>
-        <div class="flex gap-6 mt-8">
-          <span class="badge ${ETIQUETAS_ESTADO_SAN[san.estado].clase}">${ETIQUETAS_ESTADO_SAN[san.estado].texto}</span>
+  wrap.innerHTML = misNumeros.map((n, idx) => {
+    const san = n.sanes;
+    const total = san.num_participantes;
+    const turno = n.numero;
+    const pct = Math.round((turno / total) * 100);
+    const circ = 2 * Math.PI * 46;
+    const offset = circ - (pct / 100) * circ;
+    const est = ETIQUETAS_ESTADO_SAN[san.estado] || { texto: san.estado, clase: 'badge-muted' };
+    return `
+    <div class="glass ${idx ? 'mt-12' : ''}">
+      <div class="card-title">${idx === 0 ? 'Mi San' : 'Otro San'}</div>
+      <div class="wheel-wrap">
+        <div class="wheel">
+          <svg viewBox="0 0 110 110">
+            <circle class="track" cx="55" cy="55" r="46"/>
+            <circle class="progress" cx="55" cy="55" r="46" stroke-dasharray="${circ}" stroke-dashoffset="${offset}"/>
+          </svg>
+          <div class="center"><b>#${turno}</b><span>de ${total}</span></div>
+        </div>
+        <div class="grow">
+          <b style="font-size:14px;">${esc(san.nombre)}</b>
+          <p class="muted mt-4" style="font-size:11.5px;">
+            ${san.tipo === 'personalizado' ? esc(san.descripcion_articulo || 'San personalizado') : 'San monetario'}
+            · ${ETIQUETAS_FRECUENCIA[san.frecuencia]}
+          </p>
+          <div class="flex gap-6 mt-8"><span class="badge ${est.clase}">${est.texto}</span></div>
         </div>
       </div>
-    </div>
-    <div class="divider"></div>
-    <div class="stat-grid">
-      <div><div class="card-title">Cuota</div><div class="mono" style="font-size:15px;">${formatoUSD(san.monto_cuota)}</div>
-        ${tasaInfo?.tasa ? `<div class="muted" style="font-size:11px;">${formatoVES(convertirUSDaVES(san.monto_cuota, tasaInfo.tasa))}</div>` : ''}</div>
-      <div><div class="card-title">Monto total del San</div><div class="mono" style="font-size:15px;">${formatoUSD(san.monto_total)}</div></div>
-    </div>
-    <div class="divider"></div>
-    <div class="glass-row"><span class="muted" style="font-size:12px;">Inicio</span><b style="font-size:12.5px;">${formatearFecha(san.fecha_inicio)}</b></div>
-    <div class="glass-row mt-4"><span class="muted" style="font-size:12px;">Fin estimado</span><b style="font-size:12.5px;">${formatearFecha(san.fecha_fin)}</b></div>
-    ${n.fecha_turno ? `<div class="glass-row mt-4"><span class="muted" style="font-size:12px;">Tu turno de cobro</span><b style="font-size:12.5px; color:var(--gold-2);">${formatearFecha(n.fecha_turno)}</b></div>` : ''}
-  `;
+      <div class="divider"></div>
+      <div class="stat-grid">
+        <div><div class="card-title">Cuota</div><div class="mono" style="font-size:15px;">${formatoUSD(san.monto_cuota)}</div>
+          ${tasaInfo?.tasa ? `<div class="muted" style="font-size:11px;">${formatoVES(convertirUSDaVES(san.monto_cuota, tasaInfo.tasa))}</div>` : ''}</div>
+        <div><div class="card-title">Monto total del San</div><div class="mono" style="font-size:15px;">${formatoUSD(san.monto_total)}</div></div>
+      </div>
+      <div class="divider"></div>
+      <div class="glass-row"><span class="muted" style="font-size:12px;">Inicio</span><b style="font-size:12.5px;">${formatearFecha(san.fecha_inicio)}</b></div>
+      <div class="glass-row mt-4"><span class="muted" style="font-size:12px;">Fin estimado</span><b style="font-size:12.5px;">${formatearFecha(san.fecha_fin)}</b></div>
+      ${n.fecha_turno ? `<div class="glass-row mt-4"><span class="muted" style="font-size:12px;">Tu turno de cobro</span><b style="font-size:12.5px; color:var(--gold-2);">${formatearFecha(n.fecha_turno)}</b></div>` : ''}
+    </div>`;
+  }).join('');
 
   const pendientes = pagos.filter(p => p.estado === 'pendiente' || p.estado === 'atrasado')
     .sort((a, b) => new Date(a.fecha_vencimiento) - new Date(b.fecha_vencimiento));
   document.getElementById('statProximoPago').textContent = pendientes.length ? formatearFecha(pendientes[0].fecha_vencimiento) : 'Al día ✓';
-  document.getElementById('statProximoCobro').textContent = n.fecha_turno ? formatearFecha(n.fecha_turno) : '—';
+
+  const hoy = hoyISO();
+  const turnos = misNumeros.filter(n => n.fecha_turno).map(n => n.fecha_turno).sort();
+  const proximo = turnos.find(f => f >= hoy) || turnos[turnos.length - 1];
+  document.getElementById('statProximoCobro').textContent = proximo ? formatearFecha(proximo) : '—';
 }
 
 function renderOtrosSanes() {
@@ -246,27 +249,28 @@ function renderOtrosSanes() {
   list.innerHTML = sanesAbiertos.map(s => `
     <div class="item-row">
       <div class="avatar">${s.tipo === 'personalizado' ? '🎁' : '💰'}</div>
-      <div class="meta"><b>${s.nombre}</b><small>${formatoUSD(s.monto_cuota)} · ${ETIQUETAS_FRECUENCIA[s.frecuencia]}</small></div>
+      <div class="meta"><b>${esc(s.nombre)}</b><small>${formatoUSD(s.monto_cuota)} · ${ETIQUETAS_FRECUENCIA[s.frecuencia]}</small></div>
       <div class="actions"><button class="btn btn-gold btn-sm" onclick="abrirSeleccionNumero('${s.id}')">Elegir #</button></div>
     </div>
   `).join('');
 }
 
 function renderPagos(filtro) {
+  filtroPagosActual = filtro;
   const list = document.getElementById('listaPagos');
-  const datos = filtro === 'todos' ? pagos : pagos.filter(p => p.estado === filtro);
+  const datos = filtro === 'todos' ? pagos : pagos.filter(p => estadoPagoEfectivo(p) === filtro);
   if (!datos.length) {
     list.innerHTML = `<div class="empty"><div class="ico">🧾</div><b>Sin pagos aquí</b><p>No hay cuotas en este filtro.</p></div>`;
     return;
   }
   list.innerHTML = datos.map(p => {
-    const est = ETIQUETAS_ESTADO_PAGO[diasHastaVencer(p.fecha_vencimiento) < 0 && p.estado === 'pendiente' ? 'atrasado' : p.estado];
+    const est = ETIQUETAS_ESTADO_PAGO[estadoPagoEfectivo(p)];
     const puedeReportar = p.estado === 'pendiente' || p.estado === 'atrasado';
     return `
     <div class="item-row" style="align-items:flex-start;">
       <div class="avatar">${p.numero_cuota}</div>
       <div class="meta">
-        <b>${p.sanes?.nombre || 'San'} · Cuota ${p.numero_cuota}</b>
+        <b>${esc(p.sanes?.nombre || 'San')} · Cuota ${p.numero_cuota}</b>
         <small>Vence ${formatearFecha(p.fecha_vencimiento)} · ${formatoUSD(p.monto_usd)}</small>
         <div class="mt-4"><span class="badge ${est.clase}">${est.texto}</span></div>
       </div>
@@ -287,27 +291,37 @@ document.querySelectorAll('#filtroPagos .chip').forEach(chip => {
 
 /* ---------- Selección de número ---------- */
 
+function gridNumeros(san) {
+  const numeros = [...(san.numeros_san || [])].sort((a, b) => a.numero - b.numero);
+  return `<div class="num-grid mt-12">
+    ${numeros.map(n => n.estado === 'disponible'
+      ? `<div class="num-cell selectable" onclick="confirmarNumero('${n.id}',${n.numero})">${n.numero}</div>`
+      : `<div class="num-cell taken">${n.numero}</div>`).join('')}
+  </div>`;
+}
+
 function abrirSeleccionNumero(sanId) {
   const san = sanesAbiertos.find(s => s.id === sanId);
-  const numeros = (san.numeros_san || []).sort((a, b) => a.numero - b.numero);
-  const overlay = abrirSheet(`
-    <div class="sheet-header"><h3>${san.nombre}</h3><button class="btn btn-icon btn-ghost" onclick="cerrarOverlay(this)">✕</button></div>
+  if (!san) return;
+  abrirSheet(`
+    <div class="sheet-header"><h3>${esc(san.nombre)}</h3><button class="btn btn-icon btn-ghost" onclick="cerrarOverlay(this)">✕</button></div>
     <p class="muted" style="font-size:12px;">Elige el número que tendrá tu turno de cobro. Cuota: <b>${formatoUSD(san.monto_cuota)}</b> · ${ETIQUETAS_FRECUENCIA[san.frecuencia]}</p>
-    <div class="num-grid mt-12">
-      ${numeros.map(n => `<div class="num-cell ${n.estado === 'disponible' ? 'selectable' : 'taken'}" ${n.estado === 'disponible' ? `onclick="confirmarNumero('${n.id}','${sanId}',${n.numero})"` : ''}>${n.numero}</div>`).join('')}
-    </div>
+    ${gridNumeros(san)}
     <p class="hint text-center mt-12">Un número más bajo cobra antes; uno más alto cobra al final.</p>
   `);
 }
 
-async function confirmarNumero(numeroRowId, sanId, numero) {
-  const { error } = await supabaseClient.from('numeros_san')
-    .update({ participante_id: perfil.id, estado: 'ocupado' })
-    .eq('id', numeroRowId).eq('estado', 'disponible');
-  if (error) { toast('Ese número ya fue tomado, elige otro', 'error'); return; }
-  document.querySelectorAll('.overlay').forEach(o => o.remove());
+async function confirmarNumero(numeroRowId, numero) {
+  if (!confirm(`¿Quedarte con el número ${numero}?`)) return;
+  const res = await rpcParticipante('part_tomar_numero', { p_numero_id: numeroRowId });
+  cerrarTodosOverlays();
+  if (!res.ok) {
+    toast(res.error || 'No se pudo tomar el número', 'error');
+    await cargarDatos();
+    return;
+  }
   toast(`Elegiste el número ${numero} 🎉`, 'success');
-  await marcar_primer_login_completo_si_aplica();
+  await marcarPrimerLoginCompleto();
   await cargarDatos();
 }
 
@@ -315,16 +329,17 @@ async function confirmarNumero(numeroRowId, sanId, numero) {
 
 function abrirReportarPago(pagoId) {
   const p = pagos.find(x => x.id === pagoId);
+  if (!p) return;
   const montoVes = tasaInfo?.tasa ? convertirUSDaVES(p.monto_usd, tasaInfo.tasa) : null;
   abrirSheet(`
     <div class="sheet-header"><h3>Reportar pago</h3><button class="btn btn-icon btn-ghost" onclick="cerrarOverlay(this)">✕</button></div>
     <div class="glass tight mb-8">
-      <div class="glass-row"><span class="muted">Cuota</span><b>#${p.numero_cuota} · ${p.sanes?.nombre || ''}</b></div>
+      <div class="glass-row"><span class="muted">Cuota</span><b>#${p.numero_cuota} · ${esc(p.sanes?.nombre || '')}</b></div>
       <div class="glass-row mt-4"><span class="muted">Monto</span><b class="mono">${formatoUSD(p.monto_usd)} ${montoVes ? '· ' + formatoVES(montoVes) : ''}</b></div>
     </div>
     <form id="formReportarPago">
-      <div class="field"><label>Referencia / N° de operación</label><input type="text" id="refPago" placeholder="Ej: 000123456" required></div>
-      <div class="field"><label>Comprobante (foto o captura)</label><input type="file" id="comprobantePago" accept="image/*,.pdf"></div>
+      <div class="field"><label>Referencia / N° de operación</label><input type="text" id="refPago" placeholder="Ej: 000123456" maxlength="80" required></div>
+      <div class="field"><label>Comprobante (foto o captura, máx. 5 MB)</label><input type="file" id="comprobantePago" accept="image/*,.pdf"></div>
       <div class="error-text" id="errReportar"></div>
       <button type="submit" class="btn btn-primary btn-block" id="btnReportar">Enviar reporte</button>
     </form>
@@ -332,37 +347,42 @@ function abrirReportarPago(pagoId) {
   document.getElementById('formReportarPago').addEventListener('submit', (e) => enviarReportePago(e, p));
 }
 
+function nombreSeguro(nombre) {
+  return String(nombre || 'comprobante').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9._-]/g, '_').slice(-60);
+}
+
 async function enviarReportePago(e, pago) {
   e.preventDefault();
   const btn = document.getElementById('btnReportar');
   const errEl = document.getElementById('errReportar');
-  botonCargando(btn, true);
   errEl.textContent = '';
 
-  let comprobanteUrl = null;
   const file = document.getElementById('comprobantePago').files[0];
+  if (file && file.size > 5 * 1024 * 1024) { errEl.textContent = 'El archivo supera los 5 MB.'; return; }
+  const referencia = document.getElementById('refPago').value.trim();
+  if (!referencia) { errEl.textContent = 'Indica la referencia del pago.'; return; }
+
+  botonCargando(btn, true);
   try {
+    let ruta = null;
     if (file) {
-      const ruta = `${pago.id}-${Date.now()}-${file.name}`;
-      const { error: upErr } = await supabaseClient.storage.from('comprobantes').upload(ruta, file);
-      if (upErr) throw upErr;
-      const { data: pub } = supabaseClient.storage.from('comprobantes').getPublicUrl(ruta);
-      comprobanteUrl = pub.publicUrl;
+      ruta = `${pago.id}/${uuidSimple()}-${nombreSeguro(file.name)}`;
+      const { error: upErr } = await conTimeout(supabaseClient.storage.from('comprobantes').upload(ruta, file, { contentType: file.type || undefined }), 60000, 'timeout');
+      if (upErr) throw new Error('No se pudo subir el comprobante: ' + upErr.message);
     }
-    const referencia = document.getElementById('refPago').value;
     const montoVes = tasaInfo?.tasa ? convertirUSDaVES(pago.monto_usd, tasaInfo.tasa) : null;
+    const res = await rpcParticipante('part_reportar_pago', {
+      p_pago_id: pago.id, p_referencia: referencia, p_ruta: ruta,
+      p_tasa: tasaInfo?.tasa || null, p_monto_ves: montoVes
+    });
+    if (!res.ok) throw new Error(res.error || 'No se pudo enviar el reporte');
 
-    const { error } = await supabaseClient.from('pagos').update({
-      estado: 'reportado', referencia, comprobante_url: comprobanteUrl,
-      fecha_pago: new Date().toISOString(), tasa_aplicada: tasaInfo?.tasa || null, monto_ves: montoVes
-    }).eq('id', pago.id).eq('estado', pago.estado);
-
-    if (error) throw error;
-    document.querySelectorAll('.overlay').forEach(o => o.remove());
+    cerrarTodosOverlays();
     toast('Pago reportado. Tu creador lo validará pronto ✅', 'success');
     await cargarDatos();
   } catch (err) {
-    errEl.textContent = 'No se pudo enviar el reporte. Intenta de nuevo.';
+    console.error(err);
+    errEl.textContent = err.message === 'timeout' ? 'La subida tardó demasiado. Intenta de nuevo.' : (err.message || 'No se pudo enviar el reporte.');
   } finally {
     botonCargando(btn, false, 'Enviar reporte');
   }
@@ -374,42 +394,38 @@ async function verificarPrimerLogin() {
   if (!perfil.primer_login) return;
 
   if (sanesAbiertos.length) {
-    const s = sanesAbiertos[0];
-    abrirSeleccionNumeroBienvenida(s);
+    abrirSeleccionNumeroBienvenida(sanesAbiertos[0]);
   } else {
     abrirSheet(`
       <div class="sheet-header"><h3>¡Bienvenido a DigitalSAN! 👋</h3></div>
       <p class="muted" style="font-size:13px;">
         ${misNumeros.length
-          ? `Ya estás participando en <b>${misNumeros.length}</b> San${misNumeros.length > 1 ? 'es' : ''}. Aquí verás tus pagos, tu turno de cobro y la tasa del dólar actualizada.`
+          ? `Ya estás participando en <b>${misNumeros.length}</b> San. Aquí verás tus pagos, tu turno de cobro y la tasa del dólar actualizada.`
           : 'Tu creador aún no ha abierto la selección de números. En cuanto lo haga, lo verás aquí para elegir tu número.'}
       </p>
       <button class="btn btn-primary btn-block mt-16" onclick="cerrarBienvenida()">Entendido</button>
-    `, { centered: true });
+    `, { centered: true, cerrable: false });
   }
 }
 
 function abrirSeleccionNumeroBienvenida(san) {
-  const numeros = (san.numeros_san || []).sort((a, b) => a.numero - b.numero);
   abrirSheet(`
-    <div class="sheet-header"><h3>¡Bienvenido! Elige tu número 🎉</h3></div>
-    <p class="muted" style="font-size:12.5px;"><b>${san.nombre}</b> · Cuota ${formatoUSD(san.monto_cuota)} · ${ETIQUETAS_FRECUENCIA[san.frecuencia]} · Total ${formatoUSD(san.monto_total)}</p>
-    <div class="num-grid mt-12">
-      ${numeros.map(n => `<div class="num-cell ${n.estado === 'disponible' ? 'selectable' : 'taken'}" ${n.estado === 'disponible' ? `onclick="confirmarNumero('${n.id}','${san.id}',${n.numero})"` : ''}>${n.numero}</div>`).join('')}
-    </div>
-  `, { centered: true });
+    <div class="sheet-header"><h3>¡Bienvenido! Elige tu número 🎉</h3><button class="btn btn-icon btn-ghost" onclick="cerrarBienvenida()">✕</button></div>
+    <p class="muted" style="font-size:12.5px;"><b>${esc(san.nombre)}</b> · Cuota ${formatoUSD(san.monto_cuota)} · ${ETIQUETAS_FRECUENCIA[san.frecuencia]} · Total ${formatoUSD(san.monto_total)}</p>
+    ${gridNumeros(san)}
+    <p class="hint text-center mt-12">Un número más bajo cobra antes; uno más alto cobra al final.</p>
+  `, { centered: true, cerrable: false });
 }
 
 async function cerrarBienvenida() {
-  document.querySelectorAll('.overlay').forEach(o => o.remove());
-  await marcar_primer_login_completo_si_aplica();
+  cerrarTodosOverlays();
+  await marcarPrimerLoginCompleto();
 }
 
-async function marcar_primer_login_completo_si_aplica() {
+async function marcarPrimerLoginCompleto() {
   if (!perfil.primer_login) return;
-  await supabaseClient.rpc('marcar_primer_login_completo', { p_participante_id: perfil.id });
-  perfil.primer_login = false;
-  guardarSesionParticipante(perfil);
+  const res = await rpcParticipante('part_primer_login_completo');
+  if (res.ok) { perfil.primer_login = false; guardarSesionParticipante(perfil); }
 }
 
 /* ---------- Navegación inferior ---------- */
@@ -434,10 +450,8 @@ document.getElementById('formPassword').addEventListener('submit', async (e) => 
   errEl.textContent = '';
   const actual = document.getElementById('passActual').value;
   const nueva = document.getElementById('passNueva').value;
-  const { data, error } = await supabaseClient.rpc('cambiar_password_participante', {
-    p_participante_id: perfil.id, p_password_actual: actual, p_password_nueva: nueva
-  });
-  if (error || !data.ok) { errEl.textContent = data?.error || 'No se pudo actualizar'; return; }
+  const res = await rpcParticipante('part_cambiar_password', { p_actual: actual, p_nueva: nueva });
+  if (!res.ok) { errEl.textContent = res.error || 'No se pudo actualizar'; return; }
   toast('Contraseña actualizada ✅', 'success');
   document.getElementById('formPassword').reset();
 });
