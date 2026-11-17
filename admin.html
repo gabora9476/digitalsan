@@ -176,11 +176,10 @@ function abrirCrearCreador() {
       <div class="field"><label>Correo (será su usuario)</label><input type="email" id="cEmail" required></div>
       <div class="field"><label>WhatsApp</label><input type="text" id="cWhatsapp" placeholder="0412-1234567" required></div>
       <div class="field"><label>Contraseña inicial (mín. 6)</label><input type="text" id="cPassword" minlength="6" value="${esc(generarPasswordTemporal())}" required></div>
-      <details class="mb-8">
-        <summary class="hint" style="cursor:pointer;">Avanzado: ya creé el usuario en Supabase</summary>
-        <div class="field mt-8"><label>UUID del usuario (opcional)</label><input type="text" id="cUuid" placeholder="00000000-0000-0000-0000-000000000000"></div>
-        <p class="hint">Si pegas el UUID no se crea ningún usuario nuevo: solo se vincula el perfil.</p>
-      </details>
+      <label class="hint" style="display:flex;gap:8px;align-items:flex-start;cursor:pointer;margin-bottom:10px;">
+        <input type="checkbox" id="cVincular" style="width:18px;height:18px;margin-top:1px;flex:none;">
+        <span>Ya creé este usuario en Supabase (Authentication → Users): solo vincular por correo, sin enviar correos.</span>
+      </label>
       <div class="error-text" id="errCrearCreador"></div>
       <button type="submit" class="btn btn-primary btn-block" id="btnCrearCreador">Registrar creador</button>
     </form>
@@ -200,13 +199,17 @@ async function crearCreador(e) {
     const email = $('cEmail').value.trim();
     const whatsapp = $('cWhatsapp').value.trim();
     const password = $('cPassword').value;
-    let uid = $('cUuid').value.trim();
-    const usoUuid = !!uid;
+    const soloVincular = $('cVincular').checked;
+    let uid = null;
     let requiereConfirmacion = false;
 
-    if (uid && !/^[0-9a-fA-F-]{36}$/.test(uid)) throw new Error('El UUID no tiene un formato válido.');
-
-    if (!uid) {
+    if (soloVincular) {
+      const { data, error } = await conTimeout(supabaseClient.rpc('vincular_creador', { p_email: email, p_nombre: nombre, p_whatsapp: whatsapp }), 20000, 'timeout');
+      if (error) {
+        throw new Error(/Could not find|does not exist/i.test(error.message || '') ? 'Falta la función en la base de datos: ejecuta database/vincular-creador.sql.' : error.message);
+      }
+      if (!data || !data.ok) throw new Error((data && data.error) || 'No se pudo vincular');
+    } else {
       if (password.length < 6) throw new Error('La contraseña debe tener al menos 6 caracteres.');
       // Cliente auxiliar: crea el usuario SIN tocar la sesión del administrador
       const aux = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -215,22 +218,24 @@ async function crearCreador(e) {
       const { data, error } = await conTimeout(aux.auth.signUp({ email, password }), 20000, 'timeout');
       if (error) throw new Error(traducirErrorAuth(error));
       if (!data.user || (data.user.identities && data.user.identities.length === 0)) {
-        throw new Error('Ese correo ya existe en Supabase. Pega su UUID en "Avanzado" para vincularlo.');
+        throw new Error('Ese correo ya existe en Supabase. Marca "Ya creé este usuario en Supabase" para vincularlo.');
       }
       uid = data.user.id;
       requiereConfirmacion = !data.session;
     }
 
-    const { error } = await supabaseClient.from('perfiles').insert({
-      auth_user_id: uid, rol: 'creador', nombre_completo: nombre, email, whatsapp
-    });
-    if (error) throw new Error('No se pudo guardar el perfil: ' + error.message);
+    if (!soloVincular) {
+      const { error } = await supabaseClient.from('perfiles').insert({
+        auth_user_id: uid, rol: 'creador', nombre_completo: nombre, email, whatsapp
+      });
+      if (error) throw new Error('No se pudo guardar el perfil: ' + error.message);
+    }
 
     cerrarTodosOverlays();
     toast('Creador registrado ✅', 'success');
     await cargarTodo();
 
-    if (!usoUuid) {
+    if (!soloVincular) {
       const mensaje = `Hola ${nombre} 👋, ya tienes acceso de *Creador* en DigitalSAN.\n\nCorreo: ${email}\nContraseña: ${password}\n\nEntra en la pestaña "Creador" de la página de inicio.`;
       abrirSheet(`
         <div class="sheet-header"><h3>Compartir acceso</h3></div>
